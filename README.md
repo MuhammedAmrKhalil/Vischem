@@ -10,7 +10,6 @@ Draw schematics, configure device models, export SPICE netlists, and simulate wi
 ## Requirements
 
 - Python 3.10 or newer — https://www.python.org/downloads/
-- 
 - Pillow  — enables image export
 - NGspice — for running the exported netlist
 
