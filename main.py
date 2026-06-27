@@ -1,23 +1,3 @@
-#!/usr/bin/env python3
-"""
-Vischem  v0.1
-Visual Schematic Editor for analog / mixed-signal circuit design.
-Targets NGspice for simulation.
-
-Usage
------
-    python main.py
-
-Requirements
-------------
-    Python 3.10+
-    Pillow  (optional — for PNG/JPEG/BMP and documentation image export)
-        pip install pillow
-
-    NGspice (optional — for running the exported .cir netlist)
-        https://ngspice.sourceforge.io
-"""
-
 import sys
 import os
 
