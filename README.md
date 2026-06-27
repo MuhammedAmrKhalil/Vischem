@@ -93,17 +93,6 @@ clear                     Clear canvas
 
 ---
 
-## Voltage source waveforms
-
-Press `E` on a placed `V` source to open the waveform dialog.
-Supported types: **DC**, **AC**, **SIN**, **PULSE**, **EXP**, **PWL**, **SFFM**.
-
-Each transient waveform (SIN / PULSE / EXP / PWL / SFFM) has independent
-**DC bias** and **AC magnitude + phase** fields, so a single source can
-participate in `.op`, `.ac`, and `.tran` analyses simultaneously.
-
----
-
 ## Model Manager  `⚛ Models`
 
 Configure device models project-wide:
