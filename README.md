@@ -1,6 +1,6 @@
 # Vischem  v0.1
 
-**Visual Schematic Editor for analog and mixed-signal circuit design.**
+**Visual Schematic Editor for VLSI design**
 
 Draw schematics, configure device models, export SPICE netlists, and simulate with NGspice.
 
@@ -9,8 +9,9 @@ Draw schematics, configure device models, export SPICE netlists, and simulate wi
 ## Requirements
 
 - Python 3.10 or newer — https://www.python.org/downloads/
-- Pillow *(optional)* — enables PNG / JPEG / BMP and documentation image export
-- NGspice *(optional)* — for running the exported `.cir` netlist
+- 
+- Pillow  — enables image export
+- NGspice — for running the exported netlist
 
 ## Installation
 
@@ -70,13 +71,13 @@ vischem/
 | `M` | Toggle mouse mode |
 | `+ / -` | Zoom in / out |
 | `Del` | Delete component at cursor |
-| `:` | Open command dialog |
+| shift + `:` | Open command dialog |
 
 ---
 
-## Command dialog  `:`
+## Command dialog
 
-Type `:` then one of these commands:
+Press shift + `:` then type one of these commands:
 
 ```
 nmos  pmos  npn  pnp     Place transistor
@@ -86,9 +87,7 @@ save                      Save schematic (.json / .svg / .png …)
 load                      Load schematic (.json)
 netlist                   Export SPICE netlist (.cir)
 doc                       Export black-on-white documentation image
-zoom <pct>                Set zoom level (e.g. zoom 150)
 clear                     Clear canvas
-help                      List all commands
 ```
 
 ---
