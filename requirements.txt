@@ -1,0 +1,13 @@
+# Vischem v0.1 — Python dependencies
+#
+# Core:
+#   tkinter  (Python standard library — no install needed)
+#
+# Optional — enables PNG / JPEG / BMP and documentation image export:
+pillow>=9.0
+#
+# External tools (not Python packages):
+#   NGspice  https://ngspice.sourceforge.io
+#     Linux:   sudo apt install ngspice
+#     Windows: installer at https://ngspice.sourceforge.io/download.html
+#     macOS:   brew install ngspice
