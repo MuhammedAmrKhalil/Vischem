@@ -36,22 +36,6 @@ NGspice is a separate system install and is not required to draw schematics or e
 
 ---
 
-## Project structure
-
-```
-vischem/
-├── main.py            ← entry point — run this
-├── editor/
-│   ├── app.py         ← main editor window and UI logic
-│   └── netlist.py     ← schematic → SPICE netlist generator
-├── symbols/           ← drawing functions for each component type
-├── examples/          ← sample schematics (coming soon)
-├── requirements.txt
-└── README.md
-```
-
----
-
 ## Hotkeys
 
 | Key | Action |
