@@ -1,4 +1,4 @@
-## **This repo stands with GAZA !!**
+## **This repo stands with Palestine !!**
 # Vischem  v0.1
 
 **Visual Schematic Editor for VLSI design**
