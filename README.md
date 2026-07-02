@@ -76,7 +76,7 @@ clear                     Clear canvas
 
 ---
 
-## Model Manager  `⚛ Models`
+## Model Manager  `Models`
 
 Configure device models project-wide:
 
