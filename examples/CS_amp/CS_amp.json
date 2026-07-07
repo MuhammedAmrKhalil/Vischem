@@ -1,0 +1,271 @@
+{
+  "version": "0.6",
+  "components": [
+    {
+      "type": "NMOS",
+      "label": "M1",
+      "value": "W/L=2u/180n",
+      "gx": 6,
+      "gy": 5,
+      "rot": 0,
+      "flip": false,
+      "model_name": "N_p5u",
+      "mos_w": "222u",
+      "mos_l": "1000n"
+    },
+    {
+      "type": "G",
+      "label": "GND3",
+      "value": "",
+      "gx": 6,
+      "gy": 8,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "GND4",
+      "value": "",
+      "gx": 3,
+      "gy": 8,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "V",
+      "label": "V2",
+      "value": "DC 0.75 AC 1 SIN(0.75 1m 1k 0 0 0)",
+      "gx": 3,
+      "gy": 6,
+      "rot": 0,
+      "flip": false,
+      "vsrc_type": "SIN",
+      "vsrc_params": {
+        "SIN": [
+          "0.75",
+          "1m",
+          "1k",
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      "vsrc_dc": "0.75",
+      "vsrc_ac": "1",
+      "vsrc_ac_phase": "0"
+    },
+    {
+      "type": "R",
+      "label": "R2",
+      "value": "50kΩ",
+      "gx": 6,
+      "gy": 2,
+      "rot": 90,
+      "flip": false
+    },
+    {
+      "type": "C",
+      "label": "C1",
+      "value": "1pF",
+      "gx": 8,
+      "gy": 5,
+      "rot": 90,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "GND6",
+      "value": "",
+      "gx": 8,
+      "gy": 8,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "V",
+      "label": "V4",
+      "value": "DC 5",
+      "gx": 3,
+      "gy": 2,
+      "rot": 0,
+      "flip": false,
+      "vsrc_type": "DC",
+      "vsrc_params": {
+        "DC": [
+          "5",
+          "0",
+          "0"
+        ]
+      },
+      "vsrc_dc": "0",
+      "vsrc_ac": "0",
+      "vsrc_ac_phase": "0"
+    },
+    {
+      "type": "G",
+      "label": "GND7",
+      "value": "",
+      "gx": 3,
+      "gy": 4,
+      "rot": 0,
+      "flip": false
+    }
+  ],
+  "wires": [
+    {
+      "x1": 5,
+      "y1": 5,
+      "x2": 3,
+      "y2": 5
+    },
+    {
+      "x1": 3,
+      "y1": 7,
+      "x2": 3,
+      "y2": 8
+    },
+    {
+      "x1": 6,
+      "y1": 6,
+      "x2": 6,
+      "y2": 8
+    },
+    {
+      "x1": 6,
+      "y1": 3,
+      "x2": 6,
+      "y2": 4
+    },
+    {
+      "x1": 8,
+      "y1": 4,
+      "x2": 6,
+      "y2": 4
+    },
+    {
+      "x1": 8,
+      "y1": 6,
+      "x2": 8,
+      "y2": 8
+    },
+    {
+      "x1": 8,
+      "y1": 4,
+      "x2": 9,
+      "y2": 4
+    },
+    {
+      "x1": 3,
+      "y1": 1,
+      "x2": 6,
+      "y2": 1
+    },
+    {
+      "x1": 3,
+      "y1": 3,
+      "x2": 3,
+      "y2": 4
+    }
+  ],
+  "wirelabels": [
+    {
+      "gx": 9,
+      "gy": 4,
+      "text": "out"
+    },
+    {
+      "gx": 3,
+      "gy": 5,
+      "text": "in"
+    }
+  ],
+  "simulation": {
+    "analysis": "AC",
+    "params": {
+      "OP": [],
+      "DC": [
+        "V1",
+        "0",
+        "5",
+        "0.01"
+      ],
+      "TRAN": [
+        "1n",
+        "1u",
+        "0"
+      ],
+      "AC": [
+        "dec",
+        "10",
+        "1",
+        "10G"
+      ],
+      "NOISE": [
+        "out",
+        "V1",
+        "dec",
+        "100",
+        "1",
+        "10G"
+      ]
+    }
+  },
+  "model_config": {
+    "mode": "include",
+    "level": 1,
+    "file_path": "C:/Users/mamr2/OneDrive/Desktop/vischem/examples/models/cmosedu_models.lib",
+    "corner": "tt",
+    "device_models": {
+      "NMOS": {
+        "name": "NMOS_GENERIC",
+        "params": {
+          "VTO": 1.0,
+          "KP": 0.0002,
+          "LAMBDA": 0.01,
+          "GAMMA": 0.5,
+          "PHI": 0.6
+        },
+        "w": "2u",
+        "l": "180n"
+      },
+      "PMOS": {
+        "name": "PMOS_GENERIC",
+        "params": {
+          "VTO": -1.0,
+          "KP": 8e-05,
+          "LAMBDA": 0.01,
+          "GAMMA": 0.5,
+          "PHI": 0.6
+        },
+        "w": "4u",
+        "l": "180n"
+      },
+      "NPN": {
+        "name": "NPN_GENERIC",
+        "params": {
+          "IS": 1e-14,
+          "BF": 100,
+          "VAF": 50,
+          "TF": 5e-10,
+          "CJE": 1e-12,
+          "CJC": 5e-13
+        },
+        "w": "",
+        "l": ""
+      },
+      "PNP": {
+        "name": "PNP_GENERIC",
+        "params": {
+          "IS": 1e-14,
+          "BF": 50,
+          "VAF": 50,
+          "TF": 1e-09,
+          "CJE": 1e-12,
+          "CJC": 5e-13
+        },
+        "w": "",
+        "l": ""
+      }
+    }
+  }
+}
