@@ -1,5 +1,5 @@
 ## **This repo stands with Palestine !!**
-# Vischem  v0.1
+# Vischem  v0.2
 
 **Visual Schematic Editor for VLSI design**
 
