@@ -591,7 +591,8 @@ def generate(comps: list, wires: list, wlbls: list = None,
              sim_config=None,
              model_config: "ModelConfig | None" = None,
              title: str = "Vischem",
-             pdk_include: str = "") -> NetlistResult:
+             pdk_include: str = "",
+             raw_filename: str = "") -> NetlistResult:
     """
     Build a complete NGspice netlist from editor component + wire lists.
 
@@ -604,6 +605,13 @@ def generate(comps: list, wires: list, wlbls: list = None,
     model_config : ModelConfig object (optional).
     title        : first-line title comment
     pdk_include  : DEPRECATED — use model_config instead.
+    raw_filename : when provided, a .control block is embedded that runs
+                   the active analysis and writes results to this filename.
+                   Use just the stem or basename — e.g. "amplifier" or
+                   "amplifier.raw". Path is resolved relative to the
+                   netlist directory (cwd when ngspice runs).
+                   When empty, a plain analysis card is written instead
+                   (suitable for the netlist panel / manual use).
     """
     if wlbls is None:
         wlbls = []
@@ -862,19 +870,42 @@ def generate(comps: list, wires: list, wlbls: list = None,
         else:
             result.warnings.append(f"No SPICE emitter for type '{t}' — skipped")
 
-    # ── Step 7: simulation command ─────────────────────────────────────────────
+    # ── Step 7: simulation command + optional .control block ──────────────────
     lines.append("*")
     lines.append("* ── Simulation ──────────────────────────────────────────────────────")
+
     if sim_config is not None:
         try:
-            spice_line = sim_config.spice_line()
+            spice_line = sim_config.spice_line()   # e.g. ".op" or ".tran 1n 100n"
             ana_key    = sim_config.analysis
-            lines.append(f"* Active: {ana_key}")
-            lines.append(spice_line)
+            # Strip leading dot to get the ngspice control command
+            # ".tran 1n 100n" → "tran 1n 100n"
+            ctrl_cmd   = spice_line.lstrip(".").strip()
+
+            if raw_filename:
+                # ── Embed .control block so ngspice runs + writes .raw ─────────
+                # write command uses just the filename (no quotes, no path) —
+                # ngspice resolves relative to cwd which simulation.py sets to
+                # the netlist directory (same folder as the .json/.cir/.raw)
+                raw_fn = os.path.basename(raw_filename)
+                if not raw_fn.endswith(".raw"):
+                    raw_fn += ".raw"
+                lines.append(f"* Active: {ana_key}  →  {raw_fn}")
+                lines.append(".control")
+                lines.append(ctrl_cmd)
+                lines.append(f"write {raw_fn}")
+                lines.append("quit")
+                lines.append(".endc")
+            else:
+                # ── Plain analysis card (manual / netlist-panel mode) ──────────
+                lines.append(f"* Active: {ana_key}")
+                lines.append(spice_line)
+
             lines.append("*")
             lines.append("* Other analyses (uncomment to use):")
-            for key in ["OP","DC","TRAN","AC","NOISE"]:
-                if key == ana_key: continue
+            for key in ["OP", "DC", "TRAN", "AC", "NOISE"]:
+                if key == ana_key:
+                    continue
                 lines.append(f"* .{key.lower()} ...")
         except Exception as e:
             lines.append(f"* (sim_config error: {e})")
@@ -885,6 +916,7 @@ def generate(comps: list, wires: list, wlbls: list = None,
         lines.append("*.dc V1 0 5 0.01")
         lines.append("*.tran 1n 100n")
         lines.append("*.ac dec 100 1k 10G")
+
     lines.append("*")
     lines.append(".end")
     result.netlist = "\n".join(lines)

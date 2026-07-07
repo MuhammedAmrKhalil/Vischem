@@ -66,6 +66,20 @@ except ImportError:
         LEVEL_LABELS = {1:"Level 1",2:"Level 2",3:"Level 3",
                         "BSIM3":"BSIM3","BSIM4":"BSIM4"}
 
+try:
+    from editor.simulation import find_ngspice, run as run_simulation, \
+                                  simulator_version, SimRun
+    _HAS_SIM = True
+except ImportError:
+    try:
+        from simulation import find_ngspice, run as run_simulation, \
+                               simulator_version, SimRun
+        _HAS_SIM = True
+    except ImportError:
+        _HAS_SIM = False
+        def find_ngspice(): return None       # type: ignore
+        def simulator_version(p): return ""   # type: ignore
+
 # ── Grid ───────────────────────────────────────────────────────────────────────
 GS_DEFAULT = 72
 GS_MIN     = 32
@@ -555,6 +569,9 @@ class Editor:
         self._netlist_visible = False
         self._last_result     = None
         self._last_dir        = os.path.expanduser("~")
+        self._current_file    : str | None = None   # path of last saved/loaded .json
+        self._ngspice_exe     : str | None = None   # located once at startup
+        self._sim_log_visible : bool = False        # simulation log panel state
 
         root.title("Vischem  v0.1")
         root.configure(bg=PANEL_BG)
@@ -562,6 +579,8 @@ class Editor:
         self._build_ui()
         self._bind()
         self._render()
+        # Locate ngspice once at startup (non-blocking — just a PATH search)
+        self.root.after(200, self._locate_ngspice)
 
     def _update_canvas_size(self):
         self.CW = COLS * self.GS
@@ -621,6 +640,13 @@ class Editor:
             activeforeground="#c4b5fd", relief="flat",
             font=("Courier", 8, "bold"), cursor="hand2", padx=8)
         self.btn_sim.pack(side=tk.RIGHT, padx=4)
+
+        self.btn_run = tk.Button(top, text="▶ Run",
+            command=self._run_simulation,
+            bg="#071a07", fg="#4ade80", activebackground="#0a2a0a",
+            activeforeground="#86efac", relief="flat",
+            font=("Courier", 9, "bold"), cursor="hand2", padx=10)
+        self.btn_run.pack(side=tk.RIGHT, padx=4)
 
         self.btn_doc = tk.Button(top, text="🖨 Doc Image",
             command=self._dialog_save_doc_image,
@@ -707,6 +733,46 @@ class Editor:
         self.nl_text.tag_config("warning",  foreground="#f59e0b")
         self.nl_text.tag_config("value",    foreground="#818cf8")
         self.nl_text.tag_config("end",      foreground="#4ade80")
+
+        # ── Simulation log panel (hidden by default) ───────────────────────────
+        self.sim_log_frame = tk.Frame(self.workspace, bg="#080c10", bd=0, width=440)
+
+        slh = tk.Frame(self.sim_log_frame, bg="#071a07", pady=4)
+        slh.pack(fill=tk.X)
+        self.lbl_sim_header = tk.Label(slh, text="  ▶ Simulation Log",
+            bg="#071a07", fg="#4ade80",
+            font=("Courier", 9, "bold"))
+        self.lbl_sim_header.pack(side=tk.LEFT)
+        tk.Button(slh, text="✕ Close",
+            command=self._hide_sim_log,
+            bg="#071a07", fg="#4b5563", activebackground="#0a2a0a",
+            relief="flat", font=("Courier", 8), cursor="hand2", padx=6
+        ).pack(side=tk.RIGHT, padx=4)
+        self.btn_show_raw = tk.Button(slh, text="📂 Show .raw",
+            command=self._reveal_raw_file,
+            bg="#071a07", fg="#4b5563", activebackground="#0a2a0a",
+            relief="flat", font=("Courier", 8, "bold"), cursor="hand2", padx=6)
+        self.btn_show_raw.pack(side=tk.RIGHT, padx=2)
+
+        # log text area
+        sl_tf = tk.Frame(self.sim_log_frame, bg="#080c10")
+        sl_tf.pack(fill=tk.BOTH, expand=True)
+        sl_vsb = tk.Scrollbar(sl_tf, orient=tk.VERTICAL, bg=PANEL_BG)
+        sl_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.sim_log_text = tk.Text(sl_tf,
+            bg="#050810", fg="#c9d1d9", font=("Courier", 8),
+            insertbackground=CURSOR_C, selectbackground="#1e3a5f",
+            relief="flat", bd=0, wrap=tk.WORD, state=tk.DISABLED,
+            yscrollcommand=sl_vsb.set)
+        self.sim_log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sl_vsb.config(command=self.sim_log_text.yview)
+        self.sim_log_text.tag_config("ok",      foreground="#4ade80")
+        self.sim_log_text.tag_config("err",     foreground="#f87171")
+        self.sim_log_text.tag_config("warn",    foreground="#f59e0b")
+        self.sim_log_text.tag_config("dim",     foreground="#334155")
+        self.sim_log_text.tag_config("header",  foreground="#4ade80",
+                                                font=("Courier", 9, "bold"))
+        self._last_raw_path: str | None = None  # set after each successful run
 
         self.lbl_status = tk.Label(self.root, text="", anchor="w",
             bg=PANEL_BG, fg="#1e2c3a", font=("Courier", 8), padx=10, pady=3)
@@ -2058,6 +2124,9 @@ class Editor:
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            self._current_file = path
+            stem = os.path.splitext(os.path.basename(path))[0]
+            self.root.title(f"Vischem  v0.1  —  {stem}")
             self._status(f"✓ Saved → {os.path.basename(path)}", "#4ade80")
         except Exception as e:
             self._status(f"[!] {e}", "#f87171")
@@ -2089,6 +2158,9 @@ class Editor:
             self._status(
                 f"✓ Loaded {len(self.comps)} comp · {len(self.wires)} wire"
                 f" from {os.path.basename(path)}", "#4ade80")
+            self._current_file = path
+            stem = os.path.splitext(os.path.basename(path))[0]
+            self.root.title(f"Vischem  v0.1  —  {stem}")
             self._render()
         except Exception as e:
             self._status(f"[!] Load failed: {e}", "#f87171")
@@ -2278,6 +2350,191 @@ class Editor:
             self._render()   # restore the normal on-screen theme
 
     # ── Netlist ────────────────────────────────────────────────────────────────
+    # ── NGspice integration ────────────────────────────────────────────────────
+
+    def _locate_ngspice(self):
+        """Called once at startup (or on first Run). Caches the exe path."""
+        if not _HAS_SIM:
+            return
+        self._ngspice_exe = find_ngspice()
+        if self._ngspice_exe:
+            ver = simulator_version(self._ngspice_exe)
+            self._status(f"✓ {ver} found at {self._ngspice_exe}", "#4ade80")
+            self.btn_run.config(state=tk.NORMAL)
+        else:
+            self.btn_run.config(state=tk.DISABLED, fg="#4b5563")
+            self._status(
+                "[!] ngspice not found — install ngspice to enable Run.  "
+                "Linux: sudo apt install ngspice  |  "
+                "Windows: https://ngspice.sourceforge.io/download.html",
+                "#f59e0b")
+
+    def _run_simulation(self):
+        """
+        Main Run handler — called by the ▶ Run button.
+        1. Ensure schematic is saved
+        2. Write .cir alongside the .json
+        3. Run ngspice in a background thread
+        4. Stream output to the log panel
+        5. Report success / failure
+        """
+        import threading
+
+        # ── Guard: ngspice must be present ────────────────────────────────────
+        if not _HAS_SIM or not self._ngspice_exe:
+            self._locate_ngspice()
+            if not self._ngspice_exe:
+                return
+
+        # ── Guard: schematic must be saved ────────────────────────────────────
+        if not self._current_file:
+            answer = self._ask(
+                "Save before running",
+                "The schematic must be saved first.\n"
+                "Save now? (your .cir and .raw will go in the same folder)",
+                color="#f59e0b")
+            if answer is None:
+                return
+            self._dialog_save()
+            if not self._current_file:
+                return   # user cancelled the save dialog
+
+        # ── Guard: simulation analysis must be configured ─────────────────────
+        if not self.sim_config or not getattr(self.sim_config, "analysis", None):
+            self._status(
+                "[!] No simulation configured — press ⚡ Simulation first",
+                "#f59e0b")
+            self._open_sim_dialog()
+            return
+
+        # ── Derive file paths from the saved .json location ───────────────────
+        base     = os.path.splitext(self._current_file)[0]   # strip .json
+        cir_path = base + ".cir"
+        raw_path = base + ".raw"
+
+        # ── Generate and write the netlist ────────────────────────────────────
+        if not _HAS_NETLIST:
+            self._status("[!] netlist.py not found", "#f87171"); return
+        result = generate_netlist(
+            self.comps, self.wires, self.wlbls,
+            sim_config=self.sim_config,
+            model_config=self.model_config,
+            raw_filename=os.path.basename(raw_path),   # just "stem.raw"
+            title=os.path.basename(base))
+        self._last_result = result
+
+        try:
+            with open(cir_path, "w", encoding="utf-8") as f:
+                f.write(result.netlist)
+        except Exception as e:
+            self._status(f"[!] Cannot write netlist: {e}", "#f87171"); return
+
+        # ── Open / reset the log panel ────────────────────────────────────────
+        self._show_sim_log()
+        self._sim_log_clear()
+        stem = os.path.basename(base)
+        self._sim_log_write(
+            f"▶  Running simulation: {stem}\n"
+            f"   Netlist : {cir_path}\n"
+            f"   Output  : {raw_path}\n"
+            f"   Solver  : {self._ngspice_exe}\n"
+            f"   Analysis: {self.sim_config.analysis}\n"
+            + "─" * 52 + "\n",
+            tag="header")
+
+        self.btn_run.config(text="⏳ Running…", state=tk.DISABLED)
+        self._last_raw_path = None
+
+        # ── Run ngspice in a background thread so the GUI stays responsive ────
+        def _worker():
+            def _on_line(line: str, is_err: bool):
+                # Schedule GUI update on the main thread
+                tag = "err" if is_err else (
+                    "warn" if any(w in line.lower()
+                                  for w in ("warning","note:")) else "dim")
+                self.root.after(0, lambda l=line, t=tag:
+                                self._sim_log_write(l + "\n", tag=t))
+
+            sim = run_simulation(cir_path, raw_path,
+                                 self._ngspice_exe,
+                                 on_line=_on_line)
+
+            # Back on main thread for final UI update
+            self.root.after(0, lambda: self._on_sim_done(sim))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_sim_done(self, sim):
+        """Called on the main thread when the simulation thread finishes."""
+        self.btn_run.config(text="▶ Run", state=tk.NORMAL)
+
+        sep = "─" * 52
+        if sim.success:
+            self._last_raw_path = sim.raw_path
+            self.btn_show_raw.config(fg="#4ade80")
+            msg = (f"\n{sep}\n"
+                   f"✓  Simulation complete  ({sim.duration_s:.2f}s)\n"
+                   f"   Results → {sim.raw_path}\n")
+            self._sim_log_write(msg, tag="ok")
+            self.lbl_sim_header.config(text="  ✓ Simulation complete",
+                                       fg="#4ade80")
+            self._status(
+                f"✓ Done in {sim.duration_s:.2f}s  →  "
+                f"{os.path.basename(sim.raw_path)}", "#4ade80")
+        else:
+            self.btn_show_raw.config(fg="#4b5563")
+            err_text = "\n".join(sim.errors) if sim.errors else "(see log above)"
+            msg = (f"\n{sep}\n"
+                   f"[!] Simulation failed  (exit {sim.exit_code})\n"
+                   f"    {err_text}\n")
+            self._sim_log_write(msg, tag="err")
+            self.lbl_sim_header.config(text="  [!] Simulation failed",
+                                       fg="#f87171")
+            self._status(
+                f"[!] Simulation failed — check log panel", "#f87171")
+
+    # ── Sim log panel helpers ──────────────────────────────────────────────────
+    def _show_sim_log(self):
+        if not self._sim_log_visible:
+            self._sim_log_visible = True
+            self.sim_log_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
+            self.sim_log_frame.config(width=440)
+
+    def _hide_sim_log(self):
+        self._sim_log_visible = False
+        self.sim_log_frame.pack_forget()
+        self.lbl_sim_header.config(text="  ▶ Simulation Log", fg="#4ade80")
+
+    def _sim_log_clear(self):
+        self.sim_log_text.config(state=tk.NORMAL)
+        self.sim_log_text.delete("1.0", tk.END)
+        self.sim_log_text.config(state=tk.DISABLED)
+
+    def _sim_log_write(self, text: str, tag: str = "dim"):
+        self.sim_log_text.config(state=tk.NORMAL)
+        self.sim_log_text.insert(tk.END, text, tag)
+        self.sim_log_text.see(tk.END)
+        self.sim_log_text.config(state=tk.DISABLED)
+
+    def _reveal_raw_file(self):
+        """Open the folder containing the .raw file in the OS file manager."""
+        if not self._last_raw_path or not os.path.isfile(self._last_raw_path):
+            self._status("[!] No .raw file yet — run simulation first",
+                         "#f59e0b")
+            return
+        folder = os.path.dirname(self._last_raw_path)
+        import subprocess as _sp
+        try:
+            if sys.platform == "win32":
+                _sp.Popen(["explorer", "/select,",
+                           os.path.normpath(self._last_raw_path)])
+            elif sys.platform == "darwin":
+                _sp.Popen(["open", "-R", self._last_raw_path])
+            else:   # Linux
+                _sp.Popen(["xdg-open", folder])
+        except Exception as e:
+            self._status(f"[!] Cannot open folder: {e}", "#f87171")
+
     def _toggle_netlist_panel(self):
         self._netlist_visible = not self._netlist_visible
         if self._netlist_visible:
