@@ -100,7 +100,8 @@ ngspice -b my_circuit.cir
 ---
 ## Simulate with the click of a button !
 
-You can now run the simulation directly from Vischem, the simulator should produce `.raw` file 
+You can now run the simulation directly from Vischem, the simulator should produce `.raw` file.
+
 ---
 
 ## License
