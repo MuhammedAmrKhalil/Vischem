@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local backups and older versions
+vischem_0.1/
+
+# OS generated files
+.DS_Store
+Thumbs.db
