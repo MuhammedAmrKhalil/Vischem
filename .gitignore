@@ -1,10 +1,18 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
 *$py.class
+
+# PyArmor runtime package files
+!pyarmor_runtime_000000/__init__.py
+!pyarmor_runtime_000000/**/*.so
+!pyarmor_runtime_000000/**/*.pyd
 
 # Local backups and older versions
 vischem_0.1/
+.src_original/
+Vischem_source_backup/
 
 # OS generated files
 .DS_Store
