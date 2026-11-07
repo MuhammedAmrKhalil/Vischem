@@ -941,6 +941,7 @@ class Editor:
         self._current_file    : str | None = None   # path of last saved/loaded .json
         self._ngspice_exe     : str | None = None   # located once at startup
         self._sim_log_visible : bool = False        # simulation log panel state
+        self._pan_start       : tuple[int, int] | None = None  # middle-click pan origin
 
         root.title("Vischem  v0.1")
         root.configure(bg=PANEL_BG)
@@ -1255,11 +1256,23 @@ class Editor:
         cv.bind("<Double-Button-1>",    self._on_double_click)
         cv.bind("<Button-3>",           self._on_right_click)
         cv.bind("<Motion>",             self._on_motion)
-        cv.bind("<MouseWheel>",         self._on_wheel_y)
-        cv.bind("<Button-4>",           lambda e: cv.yview_scroll(-1, "units"))
-        cv.bind("<Button-5>",           lambda e: cv.yview_scroll(+1, "units"))
+        # Mouse wheel zoom (all platforms: Windows/macOS <MouseWheel>, Linux <Button-4>/<Button-5>)
+        cv.bind("<MouseWheel>",         self._on_mouse_wheel)
+        cv.bind("<Button-4>",           lambda e: self._on_wheel_zoom(+1, e))
+        cv.bind("<Button-5>",           lambda e: self._on_wheel_zoom(-1, e))
+        cv.bind("<Control-MouseWheel>", self._on_mouse_wheel)
+        cv.bind("<Control-Button-4>",   lambda e: self._on_wheel_zoom(+1, e))
+        cv.bind("<Control-Button-5>",   lambda e: self._on_wheel_zoom(-1, e))
+
+        # Shift + Wheel for horizontal scrolling
         cv.bind("<Shift-MouseWheel>",   self._on_wheel_x)
-        cv.bind("<Control-MouseWheel>", self._on_ctrl_wheel)
+        cv.bind("<Shift-Button-4>",     lambda e: cv.xview_scroll(-2, "units"))
+        cv.bind("<Shift-Button-5>",     lambda e: cv.xview_scroll(+2, "units"))
+
+        # Middle-click drag to pan canvas
+        cv.bind("<Button-2>",           self._on_pan_start)
+        cv.bind("<B2-Motion>",          self._on_pan_move)
+        cv.bind("<ButtonRelease-2>",    self._on_pan_end)
         cv.bind("<Enter>",              self._on_canvas_enter)
 
         for w in (cv, self.root):
@@ -1727,12 +1740,56 @@ class Editor:
             self.cursor = [cx, cy]
             self._render()
 
+    def _on_wheel_zoom(self, direction: int, ev=None):
+        """Zoom in (direction > 0) or out (direction < 0) centered at mouse pointer."""
+        delta = 6 if direction > 0 else -6
+        self._zoom(delta, ev)
+
+    def _on_mouse_wheel(self, ev):
+        """Handle <MouseWheel> (Windows / macOS / modern X11)."""
+        delta = getattr(ev, "delta", 0)
+        if delta > 0:
+            self._on_wheel_zoom(+1, ev)
+        elif delta < 0:
+            self._on_wheel_zoom(-1, ev)
+
     def _on_wheel_y(self, ev):
-        self.cv.yview_scroll(int(-1 * ev.delta / 120), "units")
+        """Vertical wheel zoom alias."""
+        self._on_mouse_wheel(ev)
+
     def _on_wheel_x(self, ev):
-        self.cv.xview_scroll(int(-1 * ev.delta / 120), "units")
+        """Shift + Wheel horizontal scrolling."""
+        delta = getattr(ev, "delta", 0)
+        units = int(-1 * delta / 120) if abs(delta) >= 120 else (-2 if delta > 0 else 2)
+        self.cv.xview_scroll(units, "units")
+
     def _on_ctrl_wheel(self, ev):
-        self._zoom(+8 if ev.delta > 0 else -8)
+        """Ctrl + Wheel zoom alias."""
+        self._on_mouse_wheel(ev)
+
+    def _on_pan_start(self, ev):
+        """Middle-click press to begin canvas panning."""
+        self._pan_start = (ev.x, ev.y)
+
+    def _on_pan_move(self, ev):
+        """Middle-click drag to pan canvas smoothly."""
+        if getattr(self, "_pan_start", None) is None:
+            return
+        dx = ev.x - self._pan_start[0]
+        dy = ev.y - self._pan_start[1]
+        self._pan_start = (ev.x, ev.y)
+        if dx == 0 and dy == 0:
+            return
+        left_px = self.cv.canvasx(0) - dx
+        top_px  = self.cv.canvasy(0) - dy
+        fx = max(0.0, min(1.0, left_px / max(1, self.CW)))
+        fy = max(0.0, min(1.0, top_px  / max(1, self.CH)))
+        self.cv.xview_moveto(fx)
+        self.cv.yview_moveto(fy)
+
+    def _on_pan_end(self, ev):
+        """Middle-click release to end canvas panning."""
+        self._pan_start = None
 
     def _on_key(self, ev):
         k  = ev.keysym.lower()
@@ -2587,11 +2644,45 @@ class Editor:
         self.mode = "NORMAL" if self.mode=="MOUSE" else "MOUSE"
         self._render()
 
-    def _zoom(self, delta):
-        self.GS = max(GS_MIN, min(GS_MAX, self.GS+delta))
-        self._update_canvas_size()
-        self.cv.config(scrollregion=(0,0,self.CW,self.CH))
-        self._scroll_to_cursor(); self._render()
+    def _zoom(self, delta, ev=None):
+        old_gs = self.GS
+        new_gs = max(GS_MIN, min(GS_MAX, old_gs + delta))
+        if new_gs == old_gs:
+            return
+
+        if ev is not None and hasattr(ev, "x") and hasattr(ev, "y"):
+            mx = self.cv.canvasx(ev.x)
+            my = self.cv.canvasy(ev.y)
+            gx = mx / old_gs
+            gy = my / old_gs
+
+            self.GS = new_gs
+            self._update_canvas_size()
+            self.cv.config(scrollregion=(0, 0, self.CW, self.CH))
+
+            new_mx = gx * new_gs
+            new_my = gy * new_gs
+
+            target_left = new_mx - ev.x
+            target_top  = new_my - ev.y
+
+            fx = max(0.0, min(1.0, target_left / max(1, self.CW)))
+            fy = max(0.0, min(1.0, target_top  / max(1, self.CH)))
+            self.cv.xview_moveto(fx)
+            self.cv.yview_moveto(fy)
+
+            # Move grid cursor to cell under mouse
+            cx = max(0, min(COLS - 1, int(round(new_mx / new_gs))))
+            cy = max(0, min(ROWS - 1, int(round(new_my / new_gs))))
+            self.cursor = [cx, cy]
+
+            self._render()
+        else:
+            self.GS = new_gs
+            self._update_canvas_size()
+            self.cv.config(scrollregion=(0, 0, self.CW, self.CH))
+            self._scroll_to_cursor()
+            self._render()
 
     def _zoom_to(self, pct):
         self.GS = max(GS_MIN, min(GS_MAX, round(GS_DEFAULT*pct/100)))

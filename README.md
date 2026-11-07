@@ -81,6 +81,9 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | `T` | Add net label |
 | `M` | Toggle mouse mode |
 | `+ / -` | Zoom in / out |
+| `Mouse Wheel` | Zoom in / out centered at mouse pointer |
+| `Middle Click + Drag` | Pan schematic canvas |
+| `Shift + Wheel` | Scroll canvas horizontally |
 | `Del` | Delete selected element(s) or item at cursor |
 | `:` / `Ctrl + P` | Open modern Command Palette |
 
