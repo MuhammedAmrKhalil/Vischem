@@ -1028,35 +1028,44 @@ def generate(comps: list, wires: list, wlbls: list = None,
 
     if sim_config is not None:
         try:
-            spice_line = sim_config.spice_line()   # e.g. ".op" or ".tran 1n 100n"
-            ana_key    = sim_config.analysis
-            # Strip leading dot to get the ngspice control command
-            # ".tran 1n 100n" → "tran 1n 100n"
-            ctrl_cmd   = spice_line.lstrip(".").strip()
+            if hasattr(sim_config, "active_analyses") and hasattr(sim_config, "spice_lines"):
+                active_keys = sim_config.active_analyses()
+                active_spice_lines = sim_config.spice_lines()
+            else:
+                active_keys = [getattr(sim_config, "analysis", "TRAN")]
+                active_spice_lines = [sim_config.spice_line()]
+
+            if not active_keys or not active_spice_lines:
+                active_keys = ["OP"]
+                active_spice_lines = [".op"]
 
             if raw_filename:
-                # ── Embed .control block so ngspice runs + writes .raw ─────────
-                # write command uses just the filename (no quotes, no path) —
-                # ngspice resolves relative to cwd which simulation.py sets to
-                # the netlist directory (same folder as the .json/.cir/.raw)
+                # ── Embed .control block so ngspice runs all analyses + writes .raw ──
                 raw_fn = os.path.basename(raw_filename)
                 if not raw_fn.endswith(".raw"):
                     raw_fn += ".raw"
-                lines.append(f"* Active: {ana_key}  →  {raw_fn}")
+                lines.append(f"* Active analyses: {', '.join(active_keys)}  →  {raw_fn}")
                 lines.append(".control")
-                lines.append(ctrl_cmd)
-                lines.append(f"write {raw_fn}")
+                lines.append("unset appendwrite")
+                for idx, sline in enumerate(active_spice_lines):
+                    ctrl_cmd = sline.lstrip(".").strip()
+                    lines.append(ctrl_cmd)
+                    lines.append(f"write {raw_fn}")
+                    if idx == 0 and len(active_spice_lines) > 1:
+                        lines.append("set appendwrite")
                 lines.append("quit")
                 lines.append(".endc")
             else:
-                # ── Plain analysis card (manual / netlist-panel mode) ──────────
-                lines.append(f"* Active: {ana_key}")
-                lines.append(spice_line)
+                # ── Plain analysis cards (manual / netlist viewer mode) ────────
+                lines.append(f"* Active analyses: {', '.join(active_keys)}")
+                for sline in active_spice_lines:
+                    lines.append(sline)
 
             lines.append("*")
             lines.append("* Other analyses (uncomment to use):")
-            for key in ["OP", "DC", "TRAN", "AC", "NOISE"]:
-                if key == ana_key:
+            all_known = ["OP", "DC", "TRAN", "AC", "NOISE", "TF", "PZ", "SENS", "DISTO"]
+            for key in all_known:
+                if key in active_keys:
                     continue
                 lines.append(f"* .{key.lower()} ...")
         except Exception as e:

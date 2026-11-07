@@ -254,10 +254,16 @@ COMMAND_CATALOG = [
     ("corner <corner>",                 ["corner"],                         "Switch active corner (tt/ss/ff/sf/fs)"),
     ("sim",                             ["sim", "simulate", "analysis"],    "Open simulation settings dialog"),
     ("run",                             ["run"],                            "Run NGspice simulation"),
-    ("op",                              ["op"],                             "Configure Operating Point simulation"),
+    ("op",                              ["op"],                             "Enable DC Operating Point simulation (.op)"),
     ("tran [tstop] [tstep]",            ["tran"],                           "Configure Transient simulation (:tran 10u 1n)"),
     ("ac [dec] [pts] [fstart] [fstop]", ["ac"],                             "Configure AC sweep simulation"),
     ("dc [src] [start] [stop] [step]",  ["dc"],                             "Configure DC sweep simulation"),
+    ("noise [out] [src]",               ["noise"],                          "Configure Noise simulation"),
+    ("tf [out] [src]",                  ["tf"],                             "Configure Transfer Function simulation (:tf V(out) V1)"),
+    ("pz [in+] [in-] [out+] [out-]",    ["pz"],                             "Configure Pole-Zero simulation"),
+    ("sens [out]",                      ["sens"],                           "Configure Sensitivity simulation (:sens V(out))"),
+    ("disto [scale] [pts] [fstart] [fstop]", ["disto"],                     "Configure Distortion simulation"),
+    ("nosim <analysis>",                ["nosim", "unsim", "disablesim"],   "Disable an analysis (:nosim tran)"),
     ("netlist [path]",                  ["netlist", "nl"],                  "Export or view NGspice netlist"),
     ("raw",                             ["raw", "showraw"],                 "Show raw simulation results file"),
     ("models",                          ["models"],                         "Open Model Manager dialog"),
@@ -392,23 +398,6 @@ WAVEFORMS = VSRC_TYPES
 
 # ── Simulation analysis definitions ───────────────────────────────────────────
 ANALYSES = {
-    "OP": {
-        "label": "DC Operating Point  (.op)",
-        "params": [],
-        "spice": lambda p: ".op",
-        "desc":  "Finds the DC bias point. No parameters needed.",
-    },
-    "DC": {
-        "label": "DC Sweep  (.dc)",
-        "params": [
-            ("Source name",            "V1"),
-            ("Start value (V)",        "0"),
-            ("Stop value (V)",         "5"),
-            ("Step size (V)",          "0.01"),
-        ],
-        "spice": lambda p: f".dc {p[0]} {p[1]} {p[2]} {p[3]}",
-        "desc":  "Sweeps a voltage/current source over a range.",
-    },
     "TRAN": {
         "label": "Transient  (.tran)",
         "params": [
@@ -419,6 +408,12 @@ ANALYSES = {
         "spice": lambda p: f".tran {p[0]} {p[1]} {p[2]}",
         "desc":  "Time-domain simulation. Set step << stop/100.",
     },
+    "OP": {
+        "label": "DC Operating Point  (.op)",
+        "params": [],
+        "spice": lambda p: ".op",
+        "desc":  "Finds the DC quiescent bias point (voltages & currents). No parameters needed.",
+    },
     "AC": {
         "label": "AC Small-Signal  (.ac)",
         "params": [
@@ -428,7 +423,18 @@ ANALYSES = {
             ("Stop freq (Hz)",         "10G"),
         ],
         "spice": lambda p: f".ac {p[0]} {p[1]} {p[2]} {p[3]}",
-        "desc":  "Frequency-domain analysis (Bode plots).",
+        "desc":  "Frequency-domain analysis (Bode magnitude and phase plots).",
+    },
+    "DC": {
+        "label": "DC Sweep  (.dc)",
+        "params": [
+            ("Source name",            "V1"),
+            ("Start value (V)",        "0"),
+            ("Stop value (V)",         "5"),
+            ("Step size (V)",          "0.01"),
+        ],
+        "spice": lambda p: f".dc {p[0]} {p[1]} {p[2]} {p[3]}",
+        "desc":  "Sweeps an independent voltage/current source over a range.",
     },
     "NOISE": {
         "label": "Noise  (.noise)",
@@ -441,22 +447,98 @@ ANALYSES = {
             ("Stop freq (Hz)",         "10G"),
         ],
         "spice": lambda p: f".noise V({p[0]}) {p[1]} {p[2]} {p[3]} {p[4]} {p[5]}",
-        "desc":  "Noise spectral density analysis.",
+        "desc":  "Noise spectral density analysis (input/output referred noise).",
+    },
+    "TF": {
+        "label": "Transfer Function  (.tf)",
+        "params": [
+            ("Output variable",        "V(out)"),
+            ("Input source",           "V1"),
+        ],
+        "spice": lambda p: f".tf {p[0]} {p[1]}",
+        "desc":  "Small-signal DC gain, input resistance, and output resistance.",
+    },
+    "PZ": {
+        "label": "Pole-Zero  (.pz)",
+        "params": [
+            ("Input node +",           "in"),
+            ("Input node -",           "0"),
+            ("Output node +",          "out"),
+            ("Output node -",          "0"),
+            ("Transfer (vol/cur)",     "vol"),
+            ("Analysis (pz/pol/zer)",  "pz"),
+        ],
+        "spice": lambda p: f".pz {p[0]} {p[1]} {p[2]} {p[3]} {p[4]} {p[5]}",
+        "desc":  "Finds the poles and zeros of small-signal transfer function.",
+    },
+    "SENS": {
+        "label": "Sensitivity  (.sens)",
+        "params": [
+            ("Output variable",        "V(out)"),
+        ],
+        "spice": lambda p: f".sens {p[0]}",
+        "desc":  "DC small-signal sensitivity of output to all parameters.",
+    },
+    "DISTO": {
+        "label": "Distortion  (.disto)",
+        "params": [
+            ("Scale  (dec/lin/oct)",   "dec"),
+            ("Points per decade",      "10"),
+            ("Start freq (Hz)",        "1k"),
+            ("Stop freq (Hz)",         "100Meg"),
+            ("2nd freq frac (skw2)",   "0.9"),
+        ],
+        "spice": lambda p: f".disto {p[0]} {p[1]} {p[2]} {p[3]} {p[4]}",
+        "desc":  "Small-signal harmonic and intermodulation distortion.",
     },
 }
 
 class SimConfig:
-    """Stores the active simulation analysis and its parameters."""
+    """Stores simulation analyses and parameters with multi-analysis support."""
     def __init__(self):
-        self.analysis = "TRAN"        # active analysis key
-        self.params   = {             # param values per analysis
+        self.analysis = "TRAN"        # primary / focused analysis key
+        self.enabled_analyses: list[str] = ["TRAN"]  # list of enabled analyses
+        self.params: dict = {         # param values per analysis
             k: [p[1] for p in v["params"]]
             for k, v in ANALYSES.items()
         }
 
+    def is_enabled(self, key: str) -> bool:
+        return key in self.enabled_analyses
+
+    def set_enabled(self, key: str, enabled: bool):
+        if enabled:
+            if key not in self.enabled_analyses and key in ANALYSES:
+                self.enabled_analyses.append(key)
+        else:
+            if key in self.enabled_analyses:
+                self.enabled_analyses.remove(key)
+        if self.enabled_analyses:
+            self.analysis = self.enabled_analyses[0]
+
+    def active_analyses(self) -> list[str]:
+        return [k for k in self.enabled_analyses if k in ANALYSES]
+
+    def spice_lines(self) -> list[str]:
+        lines = []
+        for k in self.active_analyses():
+            try:
+                line = ANALYSES[k]["spice"](self.params[k])
+                lines.append(line)
+            except Exception:
+                pass
+        return lines
+
     def spice_line(self) -> str:
-        a = ANALYSES[self.analysis]
-        return a["spice"](self.params[self.analysis])
+        lines = self.spice_lines()
+        if lines:
+            return "  ·  ".join(lines)
+        if self.analysis in ANALYSES:
+            try:
+                return ANALYSES[self.analysis]["spice"](self.params.get(self.analysis, []))
+            except Exception:
+                pass
+        return ".op"
 
     @property
     def analysis_type(self) -> str:
@@ -464,7 +546,10 @@ class SimConfig:
 
     @analysis_type.setter
     def analysis_type(self, val: str):
-        self.analysis = val.upper()
+        uval = val.upper()
+        self.analysis = uval
+        if uval in ANALYSES and uval not in self.enabled_analyses:
+            self.enabled_analyses.append(uval)
 
     @property
     def tstep(self) -> str:
@@ -484,13 +569,95 @@ class SimConfig:
         if "TRAN" in self.params:
             self.params["TRAN"][1] = val
 
+    @property
+    def ac_variation(self) -> str:
+        return self.params.get("AC", ["dec", "100", "1", "10G"])[0]
+
+    @ac_variation.setter
+    def ac_variation(self, val: str):
+        if "AC" in self.params:
+            self.params["AC"][0] = val
+
+    @property
+    def ac_points(self) -> str:
+        return self.params.get("AC", ["dec", "100", "1", "10G"])[1]
+
+    @ac_points.setter
+    def ac_points(self, val: str):
+        if "AC" in self.params:
+            self.params["AC"][1] = val
+
+    @property
+    def fstart(self) -> str:
+        return self.params.get("AC", ["dec", "100", "1", "10G"])[2]
+
+    @fstart.setter
+    def fstart(self, val: str):
+        if "AC" in self.params:
+            self.params["AC"][2] = val
+
+    @property
+    def fstop(self) -> str:
+        return self.params.get("AC", ["dec", "100", "1", "10G"])[3]
+
+    @fstop.setter
+    def fstop(self, val: str):
+        if "AC" in self.params:
+            self.params["AC"][3] = val
+
+    @property
+    def dc_source(self) -> str:
+        return self.params.get("DC", ["V1", "0", "5", "0.01"])[0]
+
+    @dc_source.setter
+    def dc_source(self, val: str):
+        if "DC" in self.params:
+            self.params["DC"][0] = val
+
+    @property
+    def dc_start(self) -> str:
+        return self.params.get("DC", ["V1", "0", "5", "0.01"])[1]
+
+    @dc_start.setter
+    def dc_start(self, val: str):
+        if "DC" in self.params:
+            self.params["DC"][1] = val
+
+    @property
+    def dc_stop(self) -> str:
+        return self.params.get("DC", ["V1", "0", "5", "0.01"])[2]
+
+    @dc_stop.setter
+    def dc_stop(self, val: str):
+        if "DC" in self.params:
+            self.params["DC"][2] = val
+
+    @property
+    def dc_step(self) -> str:
+        return self.params.get("DC", ["V1", "0", "5", "0.01"])[3]
+
+    @dc_step.setter
+    def dc_step(self, val: str):
+        if "DC" in self.params:
+            self.params["DC"][3] = val
+
     def to_dict(self):
-        return {"analysis": self.analysis, "params": self.params}
+        return {
+            "analysis": self.analysis,
+            "enabled_analyses": list(self.enabled_analyses),
+            "params": self.params,
+        }
 
     @classmethod
     def from_dict(cls, d):
         cfg = cls()
         cfg.analysis = d.get("analysis", "TRAN")
+        if "enabled_analyses" in d:
+            cfg.enabled_analyses = [k for k in d["enabled_analyses"] if k in ANALYSES]
+            if not cfg.enabled_analyses and cfg.analysis in ANALYSES:
+                cfg.enabled_analyses = [cfg.analysis]
+        else:
+            cfg.enabled_analyses = [cfg.analysis] if cfg.analysis in ANALYSES else ["TRAN"]
         for k, v in d.get("params", {}).items():
             if k in cfg.params:
                 cfg.params[k] = v
@@ -2010,154 +2177,356 @@ class Editor:
 
     # ── Simulation analysis dialog ──────────────────────────────────────────────
     def _open_sim_dialog(self):
-        """Open the user-friendly simulation configurator."""
-        result = [False]   # True = confirmed
-
+        """Open the multi-analysis simulation configurator."""
         dlg = tk.Toplevel(self.root)
-        dlg.title("Simulation Setup")
+        dlg.title("Simulation Setup — Multiple Analyses")
         dlg.configure(bg=PANEL_BG)
-        dlg.resizable(False, False)
+        dlg.geometry("780x560")
+        dlg.minsize(700, 480)
         dlg.transient(self.root)
         dlg.grab_set()
 
+        result = [False]       # True = confirmed
+        should_run = [False]   # True = confirmed & immediately run
+
+        # Active selected analysis in detail pane
+        initial_sel = self.sim_config.analysis if self.sim_config.analysis in ANALYSES else "TRAN"
+        active_sel = [initial_sel]
+
+        # Checkbox state per analysis (local copy)
+        check_vars: dict[str, tk.BooleanVar] = {}
+        for key in ANALYSES:
+            check_vars[key] = tk.BooleanVar(value=self.sim_config.is_enabled(key))
+
         # ── Header ─────────────────────────────────────────────────────────
-        tk.Label(dlg, text="Simulation Setup",
-            bg=PANEL_BG, fg="#38bdf8",
-            font=("Helvetica", 12, "bold"), pady=10).pack()
+        hdr = tk.Frame(dlg, bg=PANEL_BG)
+        hdr.pack(fill=tk.X, padx=18, pady=(12, 6))
 
-        # ── Analysis type selector ──────────────────────────────────────────
-        sel_frame = tk.Frame(dlg, bg=PANEL_ALT, bd=1, relief="solid")
-        sel_frame.pack(fill=tk.X, padx=16, pady=(0,8))
+        tk.Label(hdr, text="Simulation & Analysis Manager",
+                 bg=PANEL_BG, fg="#38bdf8",
+                 font=("Helvetica", 12, "bold")).pack(anchor="w")
+        tk.Label(hdr, text="Configure one or more analyses to run sequentially in NGspice (.control). Check all that apply.",
+                 bg=PANEL_BG, fg="#94a3b8",
+                 font=("Helvetica", 8, "italic")).pack(anchor="w", pady=(2, 0))
 
-        ana_var = tk.StringVar(value=self.sim_config.analysis)
+        # ── Body: Two-Pane Split Layout (Master / Detail) ───────────────────
+        body = tk.Frame(dlg, bg=PANEL_BG)
+        body.pack(fill=tk.BOTH, expand=True, padx=16, pady=4)
+
+        # ── Left Pane: Master Analysis Checklist ────────────────────────────
+        left_frame = tk.Frame(body, bg=PANEL_ALT, bd=1, relief="solid", width=280)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
+        left_frame.pack_propagate(False)
+
+        # Header in left pane
+        lf_hdr = tk.Frame(left_frame, bg=PANEL_ALT)
+        lf_hdr.pack(fill=tk.X, padx=8, pady=(8, 4))
+        tk.Label(lf_hdr, text="ANALYSES (Check to Run)", bg=PANEL_ALT, fg="#cbd5e1",
+                 font=("Helvetica", 9, "bold")).pack(side=tk.LEFT)
+
+        # Quick action buttons
+        qf = tk.Frame(left_frame, bg=PANEL_ALT)
+        qf.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+        def _select_all():
+            for v in check_vars.values():
+                v.set(True)
+            _update_summary()
+
+        def _clear_all():
+            for v in check_vars.values():
+                v.set(False)
+            _update_summary()
+
+        def _default_selection():
+            for k, v in check_vars.items():
+                v.set(k in ("OP", "TRAN"))
+            _update_summary()
+
+        tk.Button(qf, text="All", command=_select_all,
+                  bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+                  font=("Helvetica", 7, "bold"), relief="flat", padx=6, pady=2, cursor="hand2"
+                 ).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(qf, text="Clear", command=_clear_all,
+                  bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+                  font=("Helvetica", 7), relief="flat", padx=6, pady=2, cursor="hand2"
+                 ).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(qf, text="Default (OP+TRAN)", command=_default_selection,
+                  bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+                  font=("Helvetica", 7), relief="flat", padx=6, pady=2, cursor="hand2"
+                 ).pack(side=tk.LEFT)
+
+        # Separator line
+        tk.Frame(left_frame, bg="#282a3a", height=1).pack(fill=tk.X, padx=6, pady=(0, 4))
+
+        # Master list rows
+        row_frames: dict[str, tk.Frame] = {}
+        row_cbs: dict[str, tk.Checkbutton] = {}
+        row_labels: dict[str, tk.Label] = {}
+
+        def _select_analysis(key: str):
+            active_sel[0] = key
+            for k, rf in row_frames.items():
+                if k == key:
+                    c = "#26293b"
+                    rf.config(bg=c)
+                    row_cbs[k].config(bg=c, activebackground=c)
+                    row_labels[k].config(bg=c, fg="#38bdf8")
+                else:
+                    c = PANEL_ALT
+                    rf.config(bg=c)
+                    row_cbs[k].config(bg=c, activebackground=c)
+                    row_labels[k].config(bg=c, fg="#cbd5e1")
+            _show_detail(key)
 
         for key, info in ANALYSES.items():
-            rb = tk.Radiobutton(sel_frame,
-                text=info["label"],
-                variable=ana_var, value=key,
-                bg=PANEL_ALT, fg="#cbd5e1",
-                selectcolor=PANEL_BG,
-                activebackground=PANEL_ALT,
-                activeforeground="#ffffff",
-                font=("Helvetica", 9),
-                anchor="w", padx=12, pady=4,
-                cursor="hand2")
-            rb.pack(fill=tk.X)
+            rf = tk.Frame(left_frame, bg=PANEL_ALT, cursor="hand2")
+            rf.pack(fill=tk.X, padx=4, pady=1)
+            row_frames[key] = rf
 
-        # ── Description label ───────────────────────────────────────────────
-        desc_lbl = tk.Label(dlg, text="",
-            bg=PANEL_BG, fg="#94a3b8",
-            font=("Helvetica", 8, "italic"),
-            wraplength=380, anchor="w", padx=18)
-        desc_lbl.pack(fill=tk.X)
+            cb = tk.Checkbutton(rf,
+                                variable=check_vars[key],
+                                bg=PANEL_ALT,
+                                selectcolor=PANEL_BG,
+                                activebackground=PANEL_ALT,
+                                cursor="hand2",
+                                command=lambda: _update_summary())
+            cb.pack(side=tk.LEFT, padx=(4, 0))
+            row_cbs[key] = cb
 
-        # ── Parameter area ──────────────────────────────────────────────────
-        param_frame = tk.Frame(dlg, bg=PANEL_BG)
-        param_frame.pack(fill=tk.X, padx=16, pady=4)
+            lbl_text = f"{key:5s} · {info['label'].split('(')[0].strip()}"
+            lbl = tk.Label(rf, text=lbl_text,
+                           bg=PANEL_ALT, fg="#cbd5e1",
+                           font=("Helvetica", 9), anchor="w", cursor="hand2")
+            lbl.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 4), pady=3)
+            row_labels[key] = lbl
+
+            def _bind_row(k=key):
+                return lambda e: _select_analysis(k)
+            rf.bind("<Button-1>", _bind_row())
+            lbl.bind("<Button-1>", _bind_row())
+
+        # ── Right Pane: Detail & Parameter Configuration ───────────────────
+        right_frame = tk.Frame(body, bg=PANEL_ALT, bd=1, relief="solid")
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Store entry widgets per analysis
-        ana_entries: dict = {}
+        ana_entries: dict[str, tuple[tk.Frame, list[tk.StringVar]]] = {}
+
+        # Detail header (Analysis title + enable toggle)
+        det_header = tk.Frame(right_frame, bg=PANEL_ALT)
+        det_header.pack(fill=tk.X, padx=16, pady=(12, 4))
+
+        det_title_lbl = tk.Label(det_header, text="",
+                                 bg=PANEL_ALT, fg="#38bdf8",
+                                 font=("Helvetica", 11, "bold"))
+        det_title_lbl.pack(side=tk.LEFT)
+
+        det_enable_cb = tk.Checkbutton(det_header,
+                                       text="Enable in simulation run",
+                                       bg=PANEL_ALT, fg="#4ade80",
+                                       selectcolor=PANEL_BG,
+                                       activebackground=PANEL_ALT,
+                                       activeforeground="#4ade80",
+                                       font=("Helvetica", 9, "bold"),
+                                       cursor="hand2")
+        det_enable_cb.pack(side=tk.RIGHT)
+
+        det_desc_lbl = tk.Label(right_frame, text="",
+                                bg=PANEL_ALT, fg="#94a3b8",
+                                font=("Helvetica", 8, "italic"),
+                                wraplength=440, anchor="w", justify=tk.LEFT)
+        det_desc_lbl.pack(fill=tk.X, padx=16, pady=(0, 6))
+
+        tk.Frame(right_frame, bg="#282a3a", height=1).pack(fill=tk.X, padx=16, pady=(0, 8))
+
+        # Parameter cards container
+        param_container = tk.Frame(right_frame, bg=PANEL_ALT)
+        param_container.pack(fill=tk.BOTH, expand=True, padx=16)
+
         for key, info in ANALYSES.items():
-            frame = tk.Frame(param_frame, bg=PANEL_BG)
+            f = tk.Frame(param_container, bg=PANEL_ALT)
             evars = []
-            for i, (plabel, pdefault) in enumerate(info["params"]):
-                row = tk.Frame(frame, bg=PANEL_BG)
-                row.pack(fill=tk.X, pady=2)
-                tk.Label(row, text=plabel, bg=PANEL_BG, fg="#94a3b8",
-                    font=("Helvetica", 9), width=26, anchor="w"
-                ).pack(side=tk.LEFT)
-                ev = tk.StringVar(value=self.sim_config.params[key][i])
-                ent = tk.Entry(row, textvariable=ev,
-                    bg=ENTRY_BG, fg=ENTRY_FG,
-                    insertbackground=CURSOR_C,
-                    font=("Courier", 10), relief="flat", bd=3,
-                    selectbackground="#1e3a5f", width=16)
-                ent.pack(side=tk.LEFT, padx=(6,0))
-                evars.append(ev)
-            if not info["params"]:
-                tk.Label(frame, text=info["desc"],
-                    bg=PANEL_BG, fg="#64748b",
-                    font=("Helvetica", 9, "italic")).pack(pady=8)
-            ana_entries[key] = (frame, evars)
+            if info["params"]:
+                for i, (plabel, pdefault) in enumerate(info["params"]):
+                    row = tk.Frame(f, bg=PANEL_ALT)
+                    row.pack(fill=tk.X, pady=3)
+                    tk.Label(row, text=plabel, bg=PANEL_ALT, fg="#94a3b8",
+                             font=("Helvetica", 9), width=24, anchor="w"
+                            ).pack(side=tk.LEFT)
+                    cur_val = self.sim_config.params.get(key, [])
+                    val_str = cur_val[i] if i < len(cur_val) else pdefault
+                    ev = tk.StringVar(value=val_str)
+                    ent = tk.Entry(row, textvariable=ev,
+                                   bg=ENTRY_BG, fg=ENTRY_FG,
+                                   insertbackground=CURSOR_C,
+                                   font=("Courier", 10), relief="flat", bd=3,
+                                   selectbackground="#1e3a5f", width=18)
+                    ent.pack(side=tk.LEFT, padx=(6, 0))
+                    evars.append(ev)
+            else:
+                tk.Label(f, text=f"• {info['desc']}\n• No parameters needed for this analysis.",
+                         bg=PANEL_ALT, fg="#64748b",
+                         font=("Helvetica", 9, "italic"), justify=tk.LEFT).pack(anchor="w", pady=16)
+            ana_entries[key] = (f, evars)
 
-        # Preview line at bottom of params
-        preview_lbl = tk.Label(dlg, text="",
-            bg=PANEL_ALT, fg="#4ade80",
-            font=("Courier", 9), anchor="w", padx=16, pady=4)
-        preview_lbl.pack(fill=tk.X)
+        # Single SPICE Directive Preview Card
+        preview_card = tk.Frame(right_frame, bg="#12131a", bd=1, relief="solid")
+        preview_card.pack(fill=tk.X, padx=16, pady=(6, 12))
 
-        # ── Switch panel on radio change ────────────────────────────────────
-        current_frame = [None]
+        tk.Label(preview_card, text="SPICE DIRECTIVE PREVIEW",
+                 bg="#12131a", fg="#64748b",
+                 font=("Helvetica", 7, "bold"), anchor="w").pack(fill=tk.X, padx=10, pady=(6, 2))
 
-        def _switch(*_):
-            key = ana_var.get()
-            if current_frame[0]:
-                current_frame[0].pack_forget()
-            frame, _ = ana_entries[key]
-            frame.pack(fill=tk.X)
-            current_frame[0] = frame
-            desc_lbl.config(text=ANALYSES[key]["desc"])
-            _update_preview()
+        single_preview_lbl = tk.Label(preview_card, text="",
+                                      bg="#12131a", fg="#4ade80",
+                                      font=("Courier", 9, "bold"), anchor="w")
+        single_preview_lbl.pack(fill=tk.X, padx=10, pady=(0, 6))
 
-        def _update_preview(*_):
-            key = ana_var.get()
+        # Detail switching and update helpers
+        current_detail_frame = [None]
+
+        def _update_single_preview():
+            key = active_sel[0]
             _, evars = ana_entries[key]
             vals = [ev.get().strip() for ev in evars]
             try:
                 line = ANALYSES[key]["spice"](vals)
-                preview_lbl.config(text=f"  {line}", fg="#4ade80")
+                single_preview_lbl.config(text=f"  {line}", fg="#4ade80")
             except Exception:
-                preview_lbl.config(text="  (fill all parameters)", fg="#64748b")
+                single_preview_lbl.config(text="  (fill all parameters)", fg="#f59e0b")
 
-        ana_var.trace_add("write", _switch)
-        # Bind all entries to update preview
-        for key, (frame, evars) in ana_entries.items():
+        def _show_detail(key: str):
+            if current_detail_frame[0]:
+                current_detail_frame[0].pack_forget()
+            frame, _ = ana_entries[key]
+            frame.pack(fill=tk.BOTH, expand=True)
+            current_detail_frame[0] = frame
+
+            det_title_lbl.config(text=ANALYSES[key]["label"])
+            det_desc_lbl.config(text=ANALYSES[key]["desc"])
+            det_enable_cb.config(variable=check_vars[key],
+                                 command=lambda: _update_summary())
+            _update_single_preview()
+
+        # Listen to entry changes across all analyses
+        for key, (_, evars) in ana_entries.items():
             for ev in evars:
-                ev.trace_add("write", _update_preview)
+                ev.trace_add("write", lambda *_: (_update_single_preview(), _update_summary()))
 
-        _switch()   # initialize display
+        # ── Bottom Live Summary Banner ──────────────────────────────────────
+        sum_frame = tk.Frame(dlg, bg="#12131a", bd=1, relief="solid")
+        sum_frame.pack(fill=tk.X, padx=16, pady=(4, 6))
 
-        # ── Buttons ─────────────────────────────────────────────────────────
+        sum_title_lbl = tk.Label(sum_frame, text="Active Directives:",
+                                 bg="#12131a", fg="#38bdf8",
+                                 font=("Helvetica", 8, "bold"), anchor="w")
+        sum_title_lbl.pack(fill=tk.X, padx=10, pady=(4, 0))
+
+        sum_content_lbl = tk.Label(sum_frame, text="",
+                                   bg="#12131a", fg="#4ade80",
+                                   font=("Courier", 9), anchor="w",
+                                   wraplength=730, justify=tk.LEFT)
+        sum_content_lbl.pack(fill=tk.X, padx=10, pady=(0, 6))
+
+        def _get_active_directives() -> list[tuple[str, str]]:
+            res = []
+            for k in ANALYSES:
+                if check_vars[k].get():
+                    _, evars = ana_entries[k]
+                    vals = [ev.get().strip() for ev in evars]
+                    try:
+                        line = ANALYSES[k]["spice"](vals)
+                        res.append((k, line))
+                    except Exception:
+                        res.append((k, f".{k.lower()} (?)"))
+            return res
+
+        def _update_summary(*_):
+            active = _get_active_directives()
+            count = len(active)
+            if count == 0:
+                sum_title_lbl.config(text="Active Directives (0):", fg="#f59e0b")
+                sum_content_lbl.config(
+                    text="  (No analyses selected — check at least one analysis to run simulation)",
+                    fg="#f59e0b"
+                )
+                btn_run.config(state=tk.DISABLED)
+            else:
+                sum_title_lbl.config(text=f"Active Directives ({count}):", fg="#38bdf8")
+                lines_str = "    ·    ".join(sline for _, sline in active)
+                sum_content_lbl.config(text=f"  {lines_str}", fg="#4ade80")
+                btn_run.config(state=tk.NORMAL)
+
+        # ── Action Buttons Footer ───────────────────────────────────────────
         bf = tk.Frame(dlg, bg=PANEL_BG)
-        bf.pack(pady=(8,14))
+        bf.pack(fill=tk.X, padx=16, pady=(4, 12))
 
-        def _ok(_=None):
-            key = ana_var.get()
-            _, evars = ana_entries[key]
-            self.sim_config.analysis = key
-            self.sim_config.params[key] = [ev.get().strip() for ev in evars]
+        def _apply_changes():
+            for k in ANALYSES:
+                _, evars = ana_entries[k]
+                self.sim_config.params[k] = [ev.get().strip() for ev in evars]
+            enabled = [k for k in ANALYSES if check_vars[k].get()]
+            self.sim_config.enabled_analyses = enabled if enabled else ["TRAN"]
+            self.sim_config.analysis = active_sel[0] if active_sel[0] in enabled else (enabled[0] if enabled else "TRAN")
             result[0] = True
+
+        def _on_run():
+            _apply_changes()
+            should_run[0] = True
             dlg.destroy()
 
-        def _cancel(_=None):
+        def _on_ok():
+            _apply_changes()
             dlg.destroy()
 
-        tk.Button(bf, text="Apply & Close", command=_ok,
-            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
-            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
-            font=("Helvetica", 10, "bold"),
-            relief="flat", padx=20, pady=6, cursor="hand2"
-        ).pack(side=tk.LEFT, padx=6)
-        tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BTN_BG, fg=BTN_FG,
-            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
-            font=("Helvetica", 9), relief="flat",
-            padx=10, pady=6, cursor="hand2"
-        ).pack(side=tk.LEFT)
+        def _on_cancel():
+            dlg.destroy()
 
-        dlg.bind("<Return>", _ok)
-        dlg.bind("<Escape>", _cancel)
+        # Left side: Run simulation button
+        btn_run = tk.Button(bf, text="▶ Run Simulation", command=_on_run,
+                            bg=BTN_RUN_BG, fg=BTN_RUN_FG,
+                            activebackground=BTN_RUN_ACT, activeforeground="#ffffff",
+                            font=("Helvetica", 10, "bold"),
+                            relief="flat", padx=18, pady=6, cursor="hand2")
+        btn_run.pack(side=tk.LEFT)
+
+        # Right side: Cancel, Apply & Close
+        tk.Button(bf, text="Cancel", command=_on_cancel,
+                  bg=BTN_BG, fg=BTN_FG,
+                  activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
+                  font=("Helvetica", 9), relief="flat",
+                  padx=12, pady=6, cursor="hand2"
+                 ).pack(side=tk.RIGHT, padx=(6, 0))
+
+        tk.Button(bf, text="Apply & Close", command=_on_ok,
+                  bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+                  activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
+                  font=("Helvetica", 10, "bold"),
+                  relief="flat", padx=16, pady=6, cursor="hand2"
+                 ).pack(side=tk.RIGHT)
+
+        # Initialize selection and summary
+        _select_analysis(active_sel[0])
+        _update_summary()
+
+        dlg.bind("<Return>", lambda _: _on_ok())
+        dlg.bind("<Escape>", lambda _: _on_cancel())
         self._center_dialog(dlg)
         self.root.wait_window(dlg)
         self.cv.focus_set()
 
         if result[0]:
+            lines = self.sim_config.spice_lines()
+            line_str = " · ".join(lines) if lines else "(none)"
             self._status(
-                f"✓ Simulation: {ANALYSES[self.sim_config.analysis]['label']} — "
-                f"{self.sim_config.spice_line()}", "#a78bfa")
+                f"✓ Simulation configured ({len(lines)} active): {line_str}",
+                "#a78bfa")
             # Rebuild netlist panel if open
             if self._netlist_visible:
                 self._rebuild_netlist()
+            if should_run[0]:
+                self.root.after(30, self._run_simulation)
 
     # ── Dialog centering helper ─────────────────────────────────────────────────
     def _center_dialog(self, dlg):
@@ -3499,7 +3868,7 @@ class Editor:
             self._status(f"✓ Placed Inductor ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
             self._render()
 
-        elif cmd in ("v", "vsrc", "dc"):
+        elif cmd in ("v", "vsrc"):
             if self._at_cursor():
                 self._status("[!] Cell occupied — move cursor first", "#f87171"); return
             self._push_undo()
@@ -3684,32 +4053,96 @@ class Editor:
         elif cmd == "run":
             self._run_simulation()
         elif cmd == "op":
-            self.sim_config.analysis_type = "op"
-            self._status("✓ Simulation mode set to: Operating Point (.op)", "#38bdf8")
+            self.sim_config.set_enabled("OP", True)
+            self._status(f"✓ Enabled Operating Point (.op) — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
         elif cmd == "tran":
-            self.sim_config.analysis_type = "tran"
+            self.sim_config.set_enabled("TRAN", True)
             if len(args) >= 2:
                 self.sim_config.tstop = args[0]
                 self.sim_config.tstep = args[1]
             elif len(args) == 1:
                 self.sim_config.tstop = args[0]
-            self._status(f"✓ Simulation mode set to: Transient (step={self.sim_config.tstep}, stop={self.sim_config.tstop})", "#38bdf8")
+            if len(args) >= 3:
+                self.sim_config.params["TRAN"][2] = args[2]
+            self._status(f"✓ Enabled Transient: {ANALYSES['TRAN']['spice'](self.sim_config.params['TRAN'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
         elif cmd == "ac":
-            self.sim_config.analysis_type = "ac"
+            self.sim_config.set_enabled("AC", True)
             if len(args) >= 4:
                 self.sim_config.ac_variation = args[0]
                 self.sim_config.ac_points = args[1]
                 self.sim_config.fstart = args[2]
                 self.sim_config.fstop = args[3]
-            self._status("✓ Simulation mode set to: AC Sweep (.ac)", "#38bdf8")
+            elif len(args) >= 2:
+                self.sim_config.fstart = args[0]
+                self.sim_config.fstop = args[1]
+            self._status(f"✓ Enabled AC Sweep: {ANALYSES['AC']['spice'](self.sim_config.params['AC'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
         elif cmd == "dc":
-            self.sim_config.analysis_type = "dc"
+            self.sim_config.set_enabled("DC", True)
             if len(args) >= 4:
                 self.sim_config.dc_source = args[0]
                 self.sim_config.dc_start = args[1]
                 self.sim_config.dc_stop = args[2]
                 self.sim_config.dc_step = args[3]
-            self._status("✓ Simulation mode set to: DC Sweep (.dc)", "#38bdf8")
+            elif len(args) >= 3:
+                self.sim_config.dc_start = args[0]
+                self.sim_config.dc_stop = args[1]
+                self.sim_config.dc_step = args[2]
+            self._status(f"✓ Enabled DC Sweep: {ANALYSES['DC']['spice'](self.sim_config.params['DC'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
+        elif cmd == "noise":
+            self.sim_config.set_enabled("NOISE", True)
+            if len(args) >= 2:
+                self.sim_config.params["NOISE"][0] = args[0]
+                self.sim_config.params["NOISE"][1] = args[1]
+            if len(args) >= 6:
+                self.sim_config.params["NOISE"][2] = args[2]
+                self.sim_config.params["NOISE"][3] = args[3]
+                self.sim_config.params["NOISE"][4] = args[4]
+                self.sim_config.params["NOISE"][5] = args[5]
+            self._status(f"✓ Enabled Noise: {ANALYSES['NOISE']['spice'](self.sim_config.params['NOISE'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
+        elif cmd == "tf":
+            self.sim_config.set_enabled("TF", True)
+            if len(args) >= 2:
+                self.sim_config.params["TF"][0] = args[0]
+                self.sim_config.params["TF"][1] = args[1]
+            elif len(args) == 1:
+                self.sim_config.params["TF"][0] = args[0]
+            self._status(f"✓ Enabled Transfer Function: {ANALYSES['TF']['spice'](self.sim_config.params['TF'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
+        elif cmd == "pz":
+            self.sim_config.set_enabled("PZ", True)
+            for i, val in enumerate(args[:6]):
+                self.sim_config.params["PZ"][i] = val
+            self._status(f"✓ Enabled Pole-Zero: {ANALYSES['PZ']['spice'](self.sim_config.params['PZ'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
+        elif cmd == "sens":
+            self.sim_config.set_enabled("SENS", True)
+            if len(args) >= 1:
+                self.sim_config.params["SENS"][0] = args[0]
+            self._status(f"✓ Enabled Sensitivity: {ANALYSES['SENS']['spice'](self.sim_config.params['SENS'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
+        elif cmd == "disto":
+            self.sim_config.set_enabled("DISTO", True)
+            for i, val in enumerate(args[:5]):
+                self.sim_config.params["DISTO"][i] = val
+            self._status(f"✓ Enabled Distortion: {ANALYSES['DISTO']['spice'](self.sim_config.params['DISTO'])} — Active: {', '.join(self.sim_config.active_analyses())}", "#38bdf8")
+            if self._netlist_visible: self._rebuild_netlist()
+        elif cmd in ("nosim", "unsim", "disablesim"):
+            if not arg:
+                self._status("Usage: :nosim <op|tran|ac|dc|noise|tf|pz|sens|disto>", "#f59e0b")
+            else:
+                k = arg.strip().upper()
+                if k in ANALYSES:
+                    self.sim_config.set_enabled(k, False)
+                    active_str = ', '.join(self.sim_config.active_analyses()) or "(none)"
+                    self._status(f"✓ Disabled {k} analysis — Active: {active_str}", "#38bdf8")
+                    if self._netlist_visible: self._rebuild_netlist()
+                else:
+                    self._status(f"[!] Unknown analysis '{arg}'", "#f87171")
         elif cmd in ("raw", "showraw"):
             self._reveal_raw_file()
 
@@ -4098,7 +4531,8 @@ class Editor:
                 return   # user cancelled the save dialog
 
         # ── Guard: simulation analysis must be configured ─────────────────────
-        if not self.sim_config or not getattr(self.sim_config, "analysis", None):
+        active_ans = self.sim_config.active_analyses() if hasattr(self.sim_config, "active_analyses") else ([self.sim_config.analysis] if getattr(self.sim_config, "analysis", None) else [])
+        if not self.sim_config or not active_ans:
             self._status(
                 "[!] No simulation configured — open Simulation first",
                 "#f59e0b")
@@ -4131,12 +4565,15 @@ class Editor:
         self._show_sim_log()
         self._sim_log_clear()
         stem = os.path.basename(base)
+        active_dirs = self.sim_config.spice_lines() if hasattr(self.sim_config, "spice_lines") else [self.sim_config.spice_line()]
+        directives_log = "".join(f"     {d}\n" for d in active_dirs)
         self._sim_log_write(
             f">> Running simulation: {stem}\n"
-            f"   Netlist : {cir_path}\n"
-            f"   Output  : {raw_path}\n"
-            f"   Solver  : {self._ngspice_exe}\n"
-            f"   Analysis: {self.sim_config.analysis}\n"
+            f"   Netlist   : {cir_path}\n"
+            f"   Output    : {raw_path}\n"
+            f"   Solver    : {self._ngspice_exe}\n"
+            f"   Analyses  : {', '.join(active_ans)}\n"
+            f"   Directives:\n{directives_log}"
             + "─" * 52 + "\n",
             tag="header")
 

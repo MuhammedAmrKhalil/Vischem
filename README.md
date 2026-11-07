@@ -152,12 +152,18 @@ The redesigned palette features:
 | `:pdk` | `[name] [corner]`| Switch PDK preset (e.g. `:pdk sky130 tt`, `:pdk gf180`, `:pdk none`) |
 | `:corner` | `<corner>` | Switch active simulation corner (e.g. `:corner ss`, `:corner tt`) |
 | `:models` | — | Open Model Manager dialog |
-| `:sim` / `:analysis` | — | Open Simulation Settings dialog |
-| `:run` | — | Run NGspice simulation |
-| `:op` | — | Set simulation mode to DC Operating Point |
-| `:tran` | `[tstop] [tstep]`| Configure transient simulation (e.g. `:tran 10u 1n`) |
-| `:ac` | `[dec] [pts] [fstart] [fstop]` | Configure AC frequency sweep |
-| `:dc` | `[src] [start] [stop] [step]` | Configure DC sweep |
+| `:sim` / `:analysis` | — | Open Simulation Settings dialog (configure multiple analyses) |
+| `:run` | — | Run NGspice simulation for all enabled analyses |
+| `:op` | — | Enable DC Operating Point analysis (.op) |
+| `:tran` | `[tstop] [tstep] [tstart]` | Enable & configure Transient simulation (e.g. `:tran 10u 1n`) |
+| `:ac` | `[dec] [pts] [fstart] [fstop]` | Enable & configure AC frequency sweep (e.g. `:ac dec 10 1k 1Meg`) |
+| `:dc` | `[src] [start] [stop] [step]` | Enable & configure DC sweep (e.g. `:dc V1 0 5 0.1`) |
+| `:noise` | `[out] [src] [scale] [pts] [fstart] [fstop]` | Enable & configure Noise spectral density analysis |
+| `:tf` | `[out] [src]` | Enable & configure Transfer Function analysis (e.g. `:tf V(out) V1`) |
+| `:pz` | `[in+] [in-] [out+] [out-] [vol/cur] [pz/pol/zer]` | Enable & configure Pole-Zero analysis |
+| `:sens` | `[out]` | Enable & configure Sensitivity analysis (e.g. `:sens V(out)`) |
+| `:disto` | `[scale] [pts] [fstart] [fstop] [skw2]` | Enable & configure Distortion analysis |
+| `:nosim` / `:unsim` | `<analysis>` | Disable an active analysis (e.g. `:nosim tran`) |
 | `:raw` / `:showraw` | — | Reveal NGspice `.raw` simulation data file |
 | `:save` / `:w` | `[path]` | Save schematic JSON directly to path or open dialog |
 | `:load` / `:open` | `[path]` | Load schematic JSON directly from path or open dialog |
@@ -216,7 +222,33 @@ Pre-configured schematic examples are available in `examples/`:
 ## Netlist Export & Simulation
 
 - **Dedicated Netlist Viewer Window**: Click the **Netlist** toolbar button or type `:netlist` to open the separate SPICE Netlist Viewer window. It updates in real time as you draw on the schematic, provides one-click copy to clipboard, syntax highlighting, warnings diagnostics, and keeps the schematic canvas completely unconstrained.
-- **Simulating**: Click the **Run** toolbar button (or `:sim`) to execute the simulation in NGspice. Results and progress stream live to the simulation log panel, and a `.raw` output file is generated in the circuit directory.
+- **Simulating**: Click the **Run** toolbar button (or `:run`) to execute the simulation in NGspice. Results and progress stream live to the simulation log panel, and a `.raw` output file is generated in the circuit directory.
+
+### Multiple Simultaneous Simulations & Analyses
+
+Vischem allows configuring and executing **multiple simulation analyses simultaneously** in a single run:
+
+- **Master-Detail Simulation Setup Dialog** (`:sim` or **Sim** toolbar button):
+  - **Master Checklist**: Select any combination of analyses using checkboxes.
+  - **Quick Select**: Dedicated buttons for `All`, `Clear`, and `Default (OP+TRAN)`.
+  - **Detail & Parameters Pane**: Click any analysis to configure parameters with live syntax validation and dedicated SPICE directive previews.
+  - **Live Summary Banner**: Bottom status bar continuously displays all active directives (e.g. `.op · .tran 1n 1u · .ac dec 10 10 100k`).
+  - **Direct Simulation Trigger**: Click **▶ Run Simulation** inside the dialog to apply settings and start simulation immediately.
+- **9 Supported SPICE Analysis Types**:
+  1. **OP** — DC Operating Point (`.op`)
+  2. **TRAN** — Time-domain Transient response (`.tran tstep tstop [tstart]`)
+  3. **AC** — AC Small-Signal Frequency Sweep (`.ac dec/oct/lin pts fstart fstop`)
+  4. **DC** — DC Source Transfer Sweep (`.dc src start stop step`)
+  5. **NOISE** — Noise Spectral Density (`.noise V(out) src scale pts fstart fstop`)
+  6. **TF** — Small-Signal DC Transfer Function (`.tf V(out) src`)
+  7. **PZ** — Pole-Zero Analysis (`.pz in+ in- out+ out- vol/cur pz/pol/zer`)
+  8. **SENS** — DC Small-Signal Sensitivity (`.sens V(out)`)
+  9. **DISTO** — Small-Signal Distortion Analysis (`.disto scale pts fstart fstop skw2`)
+- **Multi-Dataset Output**:
+  - Automatically structures the NGspice `.control` block using `unset appendwrite` and `set appendwrite` so every analysis records its complete dataset sequentially into the `.raw` file without overwriting.
+- **CLI Commands**:
+  - Direct enablement and parameterization: `:op`, `:tran 10u 1n`, `:ac dec 10 1k 1Meg`, `:dc V1 0 5 0.1`, `:noise OUT V1 dec 10 1 100k`, `:tf V(OUT) V1`, `:pz IN 0 OUT 0 vol pz`, `:sens V(OUT)`, `:disto dec 10 1k 100Meg 0.9`.
+  - Selective deactivation: `:nosim <analysis>` (e.g. `:nosim tran`).
 
 To run NGspice manually from the command line:
 
