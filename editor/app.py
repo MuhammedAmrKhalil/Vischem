@@ -3536,21 +3536,8 @@ class Editor:
                               font=("Courier", 8), anchor="w", padx=8, pady=2)
         lbl_pdk_wl.pack(fill=tk.X, pady=(0, 4))
 
-        # ── Mode selector ──
+        # ── Mode (determined automatically by PDK selection or Model File) ──
         sv_mode = tk.StringVar(value=mc.mode)
-        mode_frame = tk.LabelFrame(body, text="  Model Source  ",
-            bg=PANEL_BG, fg="#94a3b8",
-            font=("Helvetica", 9), bd=1, relief="solid")
-        mode_frame.pack(fill=tk.X, pady=(0,10))
-
-        for val, lbl in [("inline",  "Inline  (Level 1 parameters built-in)"),
-                         ("include", "External file  (.sp / .spi  — .include)"),
-                         ("lib",     "Library file   (.lib  — .lib + corner)")]:
-            tk.Radiobutton(mode_frame, text=lbl, variable=sv_mode, value=val,
-                bg=PANEL_BG, fg="#cbd5e1", selectcolor=PANEL_ALT,
-                activebackground=PANEL_BG, activeforeground="#38bdf8",
-                font=("Helvetica", 9), anchor="w"
-            ).pack(fill=tk.X, padx=10, pady=1)
 
         # ── Level selector (inline only) ──
         level_frame = tk.LabelFrame(body, text="  SPICE Level  ",
@@ -3758,10 +3745,17 @@ class Editor:
             try:    level_val = int(level_val)
             except: pass   # stays as "BSIM3" / "BSIM4"
             pdk_val = sv_pdk.get()
+            fp = sv_file.get().strip()
+            if pdk_val != "none":
+                mode_val = "lib"
+            elif fp:
+                mode_val = "lib" if fp.lower().endswith(".lib") else "include"
+            else:
+                mode_val = "inline"
             result[0] = {
-                "mode":             sv_mode.get(),
+                "mode":             mode_val,
                 "level":            level_val,
-                "file_path":        sv_file.get().strip(),
+                "file_path":        fp,
                 "corner":           sv_corner.get(),
                 "pdk_name":         "" if pdk_val == "none" else pdk_val,
             }
