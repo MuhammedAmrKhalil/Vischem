@@ -75,12 +75,17 @@ except ImportError:
                 self.level = kw.get("level", 1)
                 self.file_path = kw.get("file_path", "")
                 self.corner = kw.get("corner", "tt")
+                self.wl_mode = kw.get("wl_mode", "default")
                 self.device_models = {}
+            def apply_pdk(self, pdk_name, corner=None):
+                self.pdk_name = pdk_name
+                if corner: self.corner = corner
             def to_dict(self): return {}
             @classmethod
             def from_dict(cls, d): return cls()
             def model_name(self, dt): return f"{dt}_GENERIC"
             def default_wl(self, dt): return ("2u","180n")
+            def min_wl(self, dt): return ("180n","180n")
         def parse_model_file(p): return {"NMOS":[],"PMOS":[],"NPN":[],"PNP":[]}
         def parse_model_file_corners(p): return []
         LEVEL_LABELS = {1:"Level 1",2:"Level 2",3:"Level 3",
@@ -225,11 +230,11 @@ COMMAND_CATALOG = [
     ("resistor [val]",                  ["r", "res", "resistor"],           "Place resistor (e.g. :r 10k)"),
     ("capacitor [val]",                 ["c", "cap", "capacitor"],          "Place capacitor (e.g. :c 100p)"),
     ("inductor [val]",                  ["l", "ind", "inductor"],           "Place inductor (e.g. :l 10u)"),
-    ("vsource [val]",                   ["v", "vsrc", "dc"],                "Place voltage source (e.g. :v 5V)"),
+    ("vsource [val]",                   ["v", "vsrc"],                      "Place voltage source (e.g. :v 5V)"),
     ("isource [val]",                   ["i", "isrc"],                      "Place current source (e.g. :i 1m)"),
     ("ground",                          ["g", "gnd", "ground"],             "Place ground (:gnd)"),
-    ("nmos [w] [l]",                    ["nmos", "m", "mos"],               "Place NMOS transistor (e.g. :nmos 10u 0.18u)"),
-    ("pmos [w] [l]",                    ["pmos"],                           "Place PMOS transistor (e.g. :pmos 20u 0.18u)"),
+    ("nmos [w|min|def] [l]",            ["nmos", "m", "mos"],               "Place NMOS (:nmos, :nmos min, :nmos 10u 0.18u)"),
+    ("pmos [w|min|def] [l]",            ["pmos"],                           "Place PMOS (:pmos, :pmos min, :pmos 20u 0.18u)"),
     ("npn [model]",                     ["npn", "bjt"],                     "Place NPN BJT (e.g. :npn 2N2222)"),
     ("pnp [model]",                     ["pnp"],                            "Place PNP BJT (e.g. :pnp 2N2907)"),
     ("in [name]",                       ["in"],                             "Place input pin (e.g. :in VIN)"),
@@ -252,6 +257,7 @@ COMMAND_CATALOG = [
     ("deselect",                        ["deselect", "none", "unselect", "desel"], "Clear selection"),
     ("pdk [name] [corner]",             ["pdk", "pdks"],                    "Switch PDK (:pdk sky130 tt | gf180 | ihp | none)"),
     ("corner <corner>",                 ["corner"],                         "Switch active corner (tt/ss/ff/sf/fs)"),
+    ("wl [default|min|apply]",          ["wl", "wlmode", "sizing"],         "Set transistor W/L sizing mode (:wl min, :wl apply)"),
     ("sim",                             ["sim", "simulate", "analysis"],    "Open simulation settings dialog"),
     ("run",                             ["run"],                            "Run NGspice simulation"),
     ("op",                              ["op"],                             "Enable DC Operating Point simulation (.op)"),
@@ -3021,6 +3027,27 @@ class Editor:
         tk.Label(r3, text="  nm  (e.g. 180n, 500n)",
             bg=PANEL_BG, fg="#4b5563", font=("Helvetica", 8)).pack(side=tk.LEFT)
 
+        # PDK Presets row
+        resolved_pdk = resolve_pdk(self.model_config.pdk_name) if self.model_config.pdk_name else None
+        nom_w, nom_l = (resolved_pdk.default_wl.get(c.type) if resolved_pdk else ("2u" if c.type=="NMOS" else "4u", "180n"))
+        min_w, min_l = self.model_config.min_wl(c.type)
+
+        preset_row = tk.Frame(body, bg=PANEL_BG)
+        preset_row.pack(fill=tk.X, pady=(2, 6))
+        _lbl(preset_row, "PDK Sizing")
+
+        tk.Button(preset_row, text=f"Default ({nom_w}/{nom_l})",
+            command=lambda: (sv_w.set(nom_w), sv_l.set(nom_l)),
+            bg=BTN_BG, fg="#38bdf8", activebackground=BTN_ACTIVE_BG,
+            font=("Helvetica", 8, "bold"), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(preset_row, text=f"Min ({min_w}/{min_l})",
+            command=lambda: (sv_w.set(min_w), sv_l.set(min_l)),
+            bg=BTN_BG, fg="#4ade80", activebackground=BTN_ACTIVE_BG,
+            font=("Helvetica", 8, "bold"), relief="flat", padx=6, pady=2, cursor="hand2"
+        ).pack(side=tk.LEFT)
+
         # ── Fingers ──
         cur_fingers = getattr(c, 'fingers', 1)
         r4 = tk.Frame(body, bg=PANEL_BG); r4.pack(fill=tk.X, pady=2)
@@ -3276,6 +3303,75 @@ class Editor:
                                   font=("Helvetica", 8), anchor="w", padx=8, pady=1)
         lbl_pdk_status.pack(fill=tk.X)
 
+        # ── Transistor Default Sizing ──
+        sv_wl_mode = tk.StringVar(value=getattr(mc, "wl_mode", "default"))
+
+        sizing_frame = tk.LabelFrame(body, text="  MOSFET Dimensions (W/L)  ",
+            bg=PANEL_BG, fg="#38bdf8",
+            font=("Helvetica", 9, "bold"), bd=1, relief="solid")
+        sizing_frame.pack(fill=tk.X, pady=(0, 10))
+
+        sizing_top = tk.Frame(sizing_frame, bg=PANEL_BG)
+        sizing_top.pack(fill=tk.X, padx=8, pady=(4, 2))
+
+        lbl_wl_dims = tk.Label(sizing_frame, text="", bg=PANEL_BG, fg="#cbd5e1",
+                               font=("Courier", 8), anchor="w", padx=10, pady=(0, 4))
+        lbl_wl_dims.pack(fill=tk.X)
+
+        def _update_wl_dims_display():
+            pval = sv_pdk.get()
+            mval = sv_wl_mode.get()
+            resp = installed_pdks.get(pval) if pval and pval != "none" else None
+            if resp:
+                nw, nl = resp.min_wl.get("NMOS", ("?", "?")) if mval == "min" else resp.default_wl.get("NMOS", ("?", "?"))
+                pw, pl = resp.min_wl.get("PMOS", ("?", "?")) if mval == "min" else resp.default_wl.get("PMOS", ("?", "?"))
+                tag = "DRC Minimum Dimensions" if mval == "min" else "Nominal PDK Defaults"
+                lbl_wl_dims.config(text=f"  NMOS: W/L={nw}/{nl}   PMOS: W/L={pw}/{pl}   ({tag})")
+            else:
+                nw, nl = ("180n", "180n") if mval == "min" else ("2u", "180n")
+                pw, pl = ("180n", "180n") if mval == "min" else ("4u", "180n")
+                tag = "Minimum" if mval == "min" else "Generic Defaults"
+                lbl_wl_dims.config(text=f"  NMOS: W/L={nw}/{nl}   PMOS: W/L={pw}/{pl}   ({tag})")
+
+        tk.Radiobutton(sizing_top, text="PDK Default (Nominal)", variable=sv_wl_mode, value="default",
+            command=_update_wl_dims_display,
+            bg=PANEL_BG, fg="#cbd5e1", selectcolor=PANEL_ALT,
+            activebackground=PANEL_BG, activeforeground="#38bdf8",
+            font=("Helvetica", 9), anchor="w"
+        ).pack(side=tk.LEFT, padx=6)
+
+        tk.Radiobutton(sizing_top, text="PDK Minimum (DRC / Model min)", variable=sv_wl_mode, value="min",
+            command=_update_wl_dims_display,
+            bg=PANEL_BG, fg="#cbd5e1", selectcolor=PANEL_ALT,
+            activebackground=PANEL_BG, activeforeground="#38bdf8",
+            font=("Helvetica", 9), anchor="w"
+        ).pack(side=tk.LEFT, padx=6)
+
+        def _apply_to_schematic():
+            pval = sv_pdk.get()
+            mval = sv_wl_mode.get()
+            resp = installed_pdks.get(pval) if pval and pval != "none" else None
+            cnt = 0
+            for comp in self.comps:
+                if comp.type in ("NMOS", "PMOS"):
+                    if resp:
+                        wl = resp.min_wl.get(comp.type) if mval == "min" else resp.default_wl.get(comp.type)
+                    else:
+                        wl = ("180n", "180n") if mval == "min" else ("2u" if comp.type=="NMOS" else "4u", "180n")
+                    if wl:
+                        comp.mos_w, comp.mos_l = wl
+                        comp.update_mos_value()
+                        cnt += 1
+            self._render()
+            if self._netlist_visible:
+                self._rebuild_netlist()
+            self._status(f"✓ Updated {cnt} transistor(s) on schematic to {mval} W/L", "#4ade80")
+
+        tk.Button(sizing_top, text="Apply to Canvas Transistors", command=_apply_to_schematic,
+            bg=BTN_BG, fg="#38bdf8", activebackground=BTN_ACTIVE_BG,
+            font=("Helvetica", 8, "bold"), relief="flat", padx=8, pady=2, cursor="hand2"
+        ).pack(side=tk.RIGHT, padx=6)
+
         # ── Mode selector ──
         sv_mode = tk.StringVar(value=mc.mode)
         mode_frame = tk.LabelFrame(body, text="  Model Source  ",
@@ -3392,6 +3488,7 @@ class Editor:
 
         # ── PDK selection callback ──
         def _on_pdk_select():
+            _update_wl_dims_display()
             val = sv_pdk.get()
             if val == "none":
                 lbl_pdk_status.config(text="Custom/Inline model mode", fg="#94a3b8")
@@ -3463,6 +3560,7 @@ class Editor:
             _set_detected_text("\n".join(lines))
 
         # Populate on open
+        _update_wl_dims_display()
         cur_pdk = getattr(mc, "pdk_name", "")
         if cur_pdk and cur_pdk in installed_pdks:
             sv_pdk.set(cur_pdk)
@@ -3493,6 +3591,7 @@ class Editor:
                 "file_path": sv_file.get().strip(),
                 "corner":    sv_corner.get(),
                 "pdk_name":  "" if pdk_val == "none" else pdk_val,
+                "wl_mode":   sv_wl_mode.get(),
             }
             dlg.destroy()
 
@@ -3524,14 +3623,13 @@ class Editor:
             self.model_config.level     = r["level"]
             self.model_config.file_path = r["file_path"]
             self.model_config.corner    = r["corner"]
-            self.model_config.pdk_name  = r.get("pdk_name", "")
-            if r.get("pdk_name"):
-                resolved = resolve_pdk(r["pdk_name"])
+            self.model_config.wl_mode   = r.get("wl_mode", "default")
+            pdk_name = r.get("pdk_name", "")
+            self.model_config.apply_pdk(pdk_name, r["corner"])
+            if pdk_name:
+                resolved = resolve_pdk(pdk_name)
                 if resolved:
                     self._model_names_cache = dict(resolved.models)
-                    for dt in ("NMOS", "PMOS", "NPN", "PNP"):
-                        if dt in resolved.default_models:
-                            self.model_config.device_models[dt]["name"] = resolved.default_models[dt]
             elif r["file_path"]:
                 self._model_names_cache = parse_model_file(r["file_path"])
             elif r["mode"] == "inline":
@@ -3912,16 +4010,28 @@ class Editor:
             self._push_undo()
             self._clear_selection()
             c = Component(typ, *self.cursor)
-            dw, dl = self.model_config.default_wl(typ)
-            if len(args) >= 2:
+            if args and args[0].lower() in ("min", "minimum"):
+                mw, ml = self.model_config.min_wl(typ)
+                c.mos_w = mw
+                c.mos_l = ml
+            elif args and args[0].lower() in ("default", "def", "nominal"):
+                resolved = resolve_pdk(self.model_config.pdk_name) if self.model_config.pdk_name else None
+                if resolved and typ in resolved.default_wl:
+                    c.mos_w, c.mos_l = resolved.default_wl[typ]
+                else:
+                    c.mos_w, c.mos_l = ("2u" if typ=="NMOS" else "4u", "180n")
+            elif len(args) >= 2:
                 c.mos_w = args[0]
                 c.mos_l = args[1]
             elif len(args) == 1:
                 c.mos_w = args[0]
+                dw, dl = self.model_config.default_wl(typ)
                 if dl: c.mos_l = dl
-            elif dw or dl:
-                c.mos_w = dw
-                c.mos_l = dl
+            else:
+                dw, dl = self.model_config.default_wl(typ)
+                if dw or dl:
+                    c.mos_w = dw
+                    c.mos_l = dl
             c.update_mos_value()
             c.model_name = self.model_config.model_name(typ)
             self.comps.append(c)
@@ -4005,9 +4115,7 @@ class Editor:
                 avail = ", ".join(f"{k} ({'✓' if v.available else '✗'})" for k, v in pdks.items())
                 self._status(f"Active PDK: {cur}  ·  Available: {avail}  ·  Usage: :pdk <sky130|gf180|ihp|none> [corner]", "#38bdf8")
             elif arg in ("none", "inline", "clear", "custom"):
-                self.model_config.pdk_name = ""
-                self.model_config.mode = "inline"
-                self.model_config.file_path = ""
+                self.model_config.apply_pdk("")
                 self._model_names_cache = {}
                 try: self.btn_models.config(text="Models")
                 except Exception: pass
@@ -4020,18 +4128,15 @@ class Editor:
                     self._status(f"[!] Unknown PDK: '{arg}'. Options: sky130, gf180, ihp, none", "#ef4444")
                 else:
                     corner = parts[2].lower() if len(parts) > 2 else resolved.default_corner
-                    self.model_config.pdk_name = resolved.key
-                    self.model_config.mode = "lib"
-                    self.model_config.file_path = resolved.lib_file
-                    self.model_config.corner = corner
+                    self.model_config.apply_pdk(resolved.key, corner)
                     self._model_names_cache = dict(resolved.models)
-                    for dt in ("NMOS", "PMOS", "NPN", "PNP"):
-                        if dt in resolved.default_models:
-                            self.model_config.device_models[dt]["name"] = resolved.default_models[dt]
                     try: self.btn_models.config(text=f"Models: {resolved.key.upper()}")
                     except Exception: pass
                     status_icon = "✓" if resolved.available else "[!] (files not found)"
-                    self._status(f"{status_icon} PDK set to {resolved.display_name} [{corner}]",
+                    nw, nl = self.model_config.default_wl("NMOS")
+                    pw, pl = self.model_config.default_wl("PMOS")
+                    mode_str = self.model_config.wl_mode
+                    self._status(f"{status_icon} PDK set to {resolved.display_name} [{corner}]  ·  {mode_str} W/L: NMOS={nw}/{nl}, PMOS={pw}/{pl}",
                                  "#4ade80" if resolved.available else "#f59e0b")
                     self._render()
 
@@ -4043,6 +4148,44 @@ class Editor:
                 self.model_config.corner = c_name
                 self._status(f"✓ Simulation corner set to: [{c_name}]", "#4ade80")
                 self._render()
+
+        elif cmd in ("wl", "wlmode", "sizing"):
+            if not arg or arg in ("status", "info"):
+                cur = self.model_config.wl_mode
+                nw, nl = self.model_config.default_wl("NMOS")
+                pw, pl = self.model_config.default_wl("PMOS")
+                pdk_info = self.model_config.pdk_name.upper() if self.model_config.pdk_name else "Generic"
+                self._status(f"PDK: [{pdk_info}]  ·  Mode: [{cur}]  ·  NMOS: {nw}/{nl}  ·  PMOS: {pw}/{pl}  ·  Usage: :wl <default|min|apply>", "#38bdf8")
+            elif arg.lower() in ("min", "minimum"):
+                self.model_config.wl_mode = "min"
+                if self.model_config.pdk_name:
+                    self.model_config.apply_pdk(self.model_config.pdk_name, self.model_config.corner)
+                nw, nl = self.model_config.min_wl("NMOS")
+                pw, pl = self.model_config.min_wl("PMOS")
+                self._status(f"✓ Transistor sizing set to [min] — NMOS: {nw}/{nl}, PMOS: {pw}/{pl}", "#4ade80")
+            elif arg.lower() in ("default", "def", "nominal"):
+                self.model_config.wl_mode = "default"
+                if self.model_config.pdk_name:
+                    self.model_config.apply_pdk(self.model_config.pdk_name, self.model_config.corner)
+                nw, nl = self.model_config.default_wl("NMOS")
+                pw, pl = self.model_config.default_wl("PMOS")
+                self._status(f"✓ Transistor sizing set to [default] — NMOS: {nw}/{nl}, PMOS: {pw}/{pl}", "#4ade80")
+            elif arg.lower() in ("apply", "reset", "all"):
+                self._push_undo()
+                count = 0
+                for c in self.comps:
+                    if c.type in ("NMOS", "PMOS"):
+                        dw, dl = self.model_config.default_wl(c.type)
+                        c.mos_w = dw
+                        c.mos_l = dl
+                        c.update_mos_value()
+                        count += 1
+                self._status(f"✓ Applied {self.model_config.wl_mode} W/L to {count} transistor(s) on schematic", "#4ade80")
+                self._render()
+                if self._netlist_visible:
+                    self._rebuild_netlist()
+            else:
+                self._status("Usage: :wl <default|min|apply>", "#f59e0b")
 
         elif cmd in ("models", "model"):
             self._open_model_manager()

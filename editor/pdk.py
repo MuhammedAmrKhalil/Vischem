@@ -54,6 +54,7 @@ class PDKSpec:
     models: dict[str, list[str]] = field(default_factory=dict)
     default_models: dict[str, str] = field(default_factory=dict)
     default_wl: dict[str, tuple[str, str]] = field(default_factory=dict)
+    min_wl: dict[str, tuple[str, str]] = field(default_factory=dict)
     is_subcircuit: bool = True
     scale_microns: bool = False
     bjt_terminals: int = 3  # 3 or 4
@@ -83,6 +84,10 @@ PDK_SPECS: dict[str, PDKSpec] = {
         default_wl={
             "NMOS": ("2u", "0.28u"),
             "PMOS": ("4u", "0.28u"),
+        },
+        min_wl={
+            "NMOS": ("0.22u", "0.28u"),
+            "PMOS": ("0.22u", "0.28u"),
         },
         is_subcircuit=True,
         scale_microns=False,
@@ -125,6 +130,10 @@ PDK_SPECS: dict[str, PDKSpec] = {
             "NMOS": ("1u", "0.15u"),
             "PMOS": ("2u", "0.15u"),
         },
+        min_wl={
+            "NMOS": ("0.42u", "0.15u"),
+            "PMOS": ("0.42u", "0.15u"),
+        },
         is_subcircuit=True,
         scale_microns=True,
         bjt_terminals=3,
@@ -154,6 +163,10 @@ PDK_SPECS: dict[str, PDKSpec] = {
         default_wl={
             "NMOS": ("1.0u", "0.45u"),
             "PMOS": ("2.0u", "0.45u"),
+        },
+        min_wl={
+            "NMOS": ("0.15u", "0.13u"),
+            "PMOS": ("0.15u", "0.13u"),
         },
         is_subcircuit=True,
         scale_microns=False,
@@ -212,6 +225,10 @@ class ResolvedPDK:
     @property
     def default_wl(self) -> dict[str, tuple[str, str]]:
         return self.spec.default_wl
+
+    @property
+    def min_wl(self) -> dict[str, tuple[str, str]]:
+        return self.spec.min_wl
 
 
 def resolve_pdk(pdk_key: str) -> ResolvedPDK | None:

@@ -44,16 +44,18 @@ def test_pdk_detection():
 
 def test_model_config_presets():
     print("\nTesting ModelConfig presets...")
-    for name, expected_corner, expected_nmos in [
-        ("gf180", "typical", "nfet_03v3"),
-        ("sky130", "tt", "sky130_fd_pr__nfet_01v8"),
-        ("ihp", "mos_tt", "sg13_lv_nmos"),
+    for name, expected_corner, expected_nmos, exp_def, exp_min in [
+        ("gf180", "typical", "nfet_03v3", ("2u", "0.28u"), ("0.22u", "0.28u")),
+        ("sky130", "tt", "sky130_fd_pr__nfet_01v8", ("1u", "0.15u"), ("0.42u", "0.15u")),
+        ("ihp", "mos_tt", "sg13_lv_nmos", ("1.0u", "0.45u"), ("0.15u", "0.13u")),
     ]:
         cfg = ModelConfig(pdk_name=name)
         assert cfg.corner == expected_corner, f"Expected {expected_corner}, got {cfg.corner}"
         assert cfg.device_models["NMOS"]["name"] == expected_nmos
+        assert cfg.default_wl("NMOS") == exp_def, f"Expected default {exp_def}, got {cfg.default_wl('NMOS')}"
+        assert cfg.min_wl("NMOS") == exp_min, f"Expected min {exp_min}, got {cfg.min_wl('NMOS')}"
         assert os.path.isfile(cfg.file_path)
-        print(f"  [OK] {name}: corner={cfg.corner}, nmos={cfg.device_models['NMOS']['name']}")
+        print(f"  [OK] {name}: corner={cfg.corner}, nmos={cfg.device_models['NMOS']['name']}, def_wl={exp_def}, min_wl={exp_min}")
 
 
 def test_dim_formatting():

@@ -127,11 +127,11 @@ The redesigned palette features:
 | `:r` / `:res` / `:resistor` | `[val]` | Place resistor at cursor with value (e.g. `:r 10k`, `:r 4.7k`) |
 | `:c` / `:cap` / `:capacitor` | `[val]` | Place capacitor at cursor with value (e.g. `:c 100p`, `:c 1u`) |
 | `:l` / `:ind` / `:inductor` | `[val]` | Place inductor at cursor with value (e.g. `:l 10u`, `:l 1m`) |
-| `:v` / `:vsrc` / `:dc` | `[val]` | Place voltage source at cursor with DC value (e.g. `:v 5V`, `:v 3.3V DC`) |
+| `:v` / `:vsrc` | `[val]` | Place voltage source at cursor with DC value (e.g. `:v 5V`, `:v 3.3V DC`) |
 | `:i` / `:isrc` | `[val]` | Place current source at cursor with value (e.g. `:i 1m`, `:i 10u`) |
 | `:g` / `:gnd` / `:ground` | — | Place ground symbol at cursor |
-| `:nmos` / `:m` / `:mos` | `[w] [l]` | Place NMOS transistor with width & length (e.g. `:nmos 10u 0.18u`) |
-| `:pmos` | `[w] [l]` | Place PMOS transistor with width & length (e.g. `:pmos 20u 0.18u`) |
+| `:nmos` / `:m` / `:mos` | `[w\|min\|def] [l]` | Place NMOS transistor (e.g. `:nmos`, `:nmos min`, `:nmos 10u 0.18u`) |
+| `:pmos` | `[w\|min\|def] [l]` | Place PMOS transistor (e.g. `:pmos`, `:pmos min`, `:pmos 20u 0.18u`) |
 | `:npn` / `:bjt` | `[model]` | Place NPN BJT with model (e.g. `:npn 2N2222`) |
 | `:pnp` | `[model]` | Place PNP BJT with model (e.g. `:pnp 2N2907`) |
 | `:in` / `:out` / `:inout` | `[name]` | Place port pin with custom net name (e.g. `:in VIN`, `:out VOUT`) |
@@ -151,6 +151,7 @@ The redesigned palette features:
 | `:deselect` / `:none` | — | Deselect all |
 | `:pdk` | `[name] [corner]`| Switch PDK preset (e.g. `:pdk sky130 tt`, `:pdk gf180`, `:pdk none`) |
 | `:corner` | `<corner>` | Switch active simulation corner (e.g. `:corner ss`, `:corner tt`) |
+| `:wl` / `:sizing` | `[default\|min\|apply]` | Configure MOSFET W/L sizing mode or batch-apply to schematic (:wl min, :wl apply) |
 | `:models` | — | Open Model Manager dialog |
 | `:sim` / `:analysis` | — | Open Simulation Settings dialog (configure multiple analyses) |
 | `:run` | — | Run NGspice simulation for all enabled analyses |
@@ -207,6 +208,31 @@ Configure device models project-wide:
    - Accommodates PDK-specific terminal definitions (e.g. 4-pin RF/BiCMOS BJTs like `npn13G2` with substrate tap).
    - Auto-populates MOSFET and BJT model name dropdowns with genuine PDK device models (e.g., `sky130_fd_pr__nfet_01v8`, `nfet_03v3`, `sg13_lv_nmos`).
    - Real-time symbol synchronization: updating Width, Length, or parallel fingers ($M$) in the Properties dialog immediately updates the displayed $W/L$ text on the canvas and emits `m=<fingers>` into the SPICE netlist.
+
+### PDK Default vs. Minimum W/L Sizing
+
+Vischem supports both **PDK Nominal Defaults** and **PDK Minimum Dimensions** (DRC / model minimums) for NMOS and PMOS transistors across all supported foundry PDKs and generic fallbacks:
+
+| PDK Preset | Device | Nominal Default ($W / L$) | PDK Minimum DRC ($W_{\min} / L_{\min}$) |
+|:---|:---|:---:|:---:|
+| **SkyWater 130nm** (`sky130`) | NMOS (`nfet_01v8`)<br>PMOS (`pfet_01v8`) | `1.0µm / 0.15µm`<br>`2.0µm / 0.15µm` | `0.42µm / 0.15µm`<br>`0.42µm / 0.15µm` |
+| **GF180MCU 180nm** (`gf180`) | NMOS (`nfet_03v3`)<br>PMOS (`pfet_03v3`) | `2.0µm / 0.28µm`<br>`4.0µm / 0.28µm` | `0.22µm / 0.28µm`<br>`0.22µm / 0.28µm` |
+| **IHP SG13G2 130nm** (`ihp`) | NMOS (`sg13_lv_nmos`)<br>PMOS (`sg13_lv_pmos`) | `1.0µm / 0.45µm`<br>`2.0µm / 0.45µm` | `0.15µm / 0.13µm`<br>`0.15µm / 0.13µm` |
+| **Generic (Inline / Level 1)** | NMOS<br>PMOS | `2.0µm / 180nm`<br>`4.0µm / 180nm` | `180nm / 180nm`<br>`180nm / 180nm` |
+
+**How to Use Sizing Modes:**
+1. **Model Manager (`:models` or Models button)**:
+   - Select either **PDK Default (Nominal)** or **PDK Minimum (DRC / Model min)** under *MOSFET Dimensions (W/L)*.
+   - Click **Apply to Canvas Transistors** to immediately batch-update existing NMOS and PMOS transistors on the schematic to the chosen PDK sizing.
+2. **MOSFET Properties Dialog**:
+   - Double-click any MOSFET or right-click $\rightarrow$ **Properties**.
+   - Use the one-click preset buttons `[Default (nom_w/nom_l)]` and `[Min (min_w/min_l)]` to instantly set nominal or DRC minimum dimensions.
+3. **Command Palette / CLI**:
+   - `:wl min` — Switch default sizing to PDK DRC minimums.
+   - `:wl default` — Switch default sizing to PDK nominal dimensions.
+   - `:wl apply` — Batch-apply active sizing mode to all schematic transistors.
+   - `:nmos min` / `:pmos min` — Place a transistor directly at PDK minimum dimensions.
+   - `:nmos def` / `:pmos def` — Place a transistor directly at PDK nominal dimensions.
 
 ---
 

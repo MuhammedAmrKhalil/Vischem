@@ -181,6 +181,10 @@ _DEFAULT_WL: dict = {
     "NMOS": ("2u",  "180n"),
     "PMOS": ("4u",  "180n"),
 }
+_DEFAULT_MIN_WL: dict = {
+    "NMOS": ("180n", "180n"),
+    "PMOS": ("180n", "180n"),
+}
 
 # Device type each transistor type belongs to
 _MOSFET_TYPES = {"NMOS", "PMOS"}
@@ -211,6 +215,12 @@ class ModelConfig:
         Corner string e.g. "tt", "ff", "ss".
         Only used in "lib" mode.
 
+    pdk_name
+        PDK identifier e.g. "gf180", "sky130", "ihp".
+
+    wl_mode
+        Transistor sizing mode: "default" (nominal PDK default) or "min" (PDK DRC/model min).
+
     device_models
         {device_type: {"name": str, "params": {param: value}, "w": str, "l": str}}
         device_type ∈ {"NMOS", "PMOS", "NPN", "PNP"}
@@ -223,26 +233,46 @@ class ModelConfig:
     file_path    : str  = ""
     corner       : str  = "tt"
     pdk_name     : str  = ""         # "" | "gf180" | "sky130" | "ihp"
+    wl_mode      : str  = "default"  # "default" | "min"
     device_models: dict = field(default_factory=dict)
 
+    def apply_pdk(self, pdk_name: str, corner: str = None):
+        """Configure models, file paths, corner, and default W/L for a given PDK."""
+        self.pdk_name = pdk_name
+        resolved = resolve_pdk(pdk_name) if pdk_name else None
+        if resolved:
+            self.mode = "lib"
+            self.file_path = resolved.lib_file
+            if corner and corner in resolved.corners:
+                self.corner = corner
+            else:
+                self.corner = resolved.default_corner
+            for dt in ("NMOS", "PMOS", "NPN", "PNP"):
+                if dt not in self.device_models:
+                    self.device_models[dt] = {}
+                if dt in resolved.default_models:
+                    self.device_models[dt]["name"] = resolved.default_models[dt]
+                if dt in ("NMOS", "PMOS"):
+                    wl = resolved.min_wl.get(dt) if self.wl_mode == "min" else resolved.default_wl.get(dt)
+                    if wl:
+                        self.device_models[dt]["w"] = wl[0]
+                        self.device_models[dt]["l"] = wl[1]
+        else:
+            self.mode = "inline"
+            self.file_path = ""
+            for dt in ("NMOS", "PMOS", "NPN", "PNP"):
+                if dt not in self.device_models:
+                    self.device_models[dt] = {}
+                self.device_models[dt]["name"] = _DEFAULT_MODEL_NAMES.get(dt, f"{dt}_GENERIC")
+                if dt in ("NMOS", "PMOS"):
+                    wl = _DEFAULT_MIN_WL.get(dt) if self.wl_mode == "min" else _DEFAULT_WL.get(dt)
+                    if wl:
+                        self.device_models[dt]["w"] = wl[0]
+                        self.device_models[dt]["l"] = wl[1]
+
     def __post_init__(self):
-        # If a known PDK is specified, load its preset parameters
         if self.pdk_name:
-            resolved = resolve_pdk(self.pdk_name)
-            if resolved:
-                self.mode = "lib"
-                if not self.corner or self.corner == "tt":
-                    self.corner = resolved.default_corner
-                if not self.file_path:
-                    self.file_path = resolved.lib_file
-                for dt in ("NMOS", "PMOS", "NPN", "PNP"):
-                    if dt not in self.device_models or not self.device_models[dt].get("name"):
-                        w, l = resolved.default_wl.get(dt, ("", ""))
-                        self.device_models[dt] = {
-                            "name": resolved.default_models.get(dt, _DEFAULT_MODEL_NAMES.get(dt, "UNKNOWN")),
-                            "params": {},
-                            "w": w, "l": l,
-                        }
+            self.apply_pdk(self.pdk_name, self.corner)
         # Ensure all four device types exist with sane defaults
         for dt in ("NMOS", "PMOS", "NPN", "PNP"):
             if dt not in self.device_models:
@@ -261,6 +291,7 @@ class ModelConfig:
             "file_path":     self.file_path,
             "corner":        self.corner,
             "pdk_name":      self.pdk_name,
+            "wl_mode":       self.wl_mode,
             "device_models": self.device_models,
         }
 
@@ -272,6 +303,7 @@ class ModelConfig:
             file_path = d.get("file_path", ""),
             corner    = d.get("corner",    "tt"),
             pdk_name  = d.get("pdk_name",  ""),
+            wl_mode   = d.get("wl_mode",   "default"),
         )
         # Restore saved per-device config, merging over defaults
         for dt, saved in d.get("device_models", {}).items():
@@ -288,19 +320,27 @@ class ModelConfig:
             "name", _DEFAULT_MODEL_NAMES.get(device_type, "UNKNOWN"))
 
     def default_wl(self, device_type: str) -> tuple[str, str]:
-        """Return (W, L) defaults for a MOSFET device type."""
+        """Return (W, L) for a MOSFET device type respecting active PDK and wl_mode."""
+        if self.wl_mode == "min":
+            return self.min_wl(device_type)
+        if self.pdk_name:
+            resolved = resolve_pdk(self.pdk_name)
+            if resolved and device_type in resolved.default_wl:
+                return resolved.default_wl[device_type]
         dm = self.device_models.get(device_type, {})
         w = dm.get("w")
         l = dm.get("l")
         if w and l:
             return w, l
+        return _DEFAULT_WL.get(device_type, ("2u", "180n"))
+
+    def min_wl(self, device_type: str) -> tuple[str, str]:
+        """Return minimum (W, L) for a MOSFET based on active PDK."""
         if self.pdk_name:
             resolved = resolve_pdk(self.pdk_name)
-            if resolved and device_type in resolved.default_wl:
-                return resolved.default_wl[device_type]
-        w = w or _DEFAULT_WL.get(device_type, ("2u", "180n"))[0]
-        l = l or _DEFAULT_WL.get(device_type, ("2u", "180n"))[1]
-        return w, l
+            if resolved and device_type in resolved.min_wl:
+                return resolved.min_wl[device_type]
+        return _DEFAULT_MIN_WL.get(device_type, ("180n", "180n"))
 
 
 def _vsrc_spice_fallback(vsrc_type: str, vsrc_params: dict,
