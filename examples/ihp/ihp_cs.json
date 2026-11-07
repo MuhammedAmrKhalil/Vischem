@@ -1,0 +1,190 @@
+{
+  "version": "0.6",
+  "components": [
+    {
+      "type": "V",
+      "label": "Vdd",
+      "value": "1.5V",
+      "gx": 2,
+      "gy": 4,
+      "rot": 0,
+      "flip": false,
+      "vsrc_type": "DC",
+      "vsrc_params": {},
+      "vsrc_dc": "0",
+      "vsrc_ac": "0",
+      "vsrc_ac_phase": "0"
+    },
+    {
+      "type": "V",
+      "label": "Vin",
+      "value": "0.8V",
+      "gx": 4,
+      "gy": 4,
+      "rot": 0,
+      "flip": false,
+      "vsrc_type": "DC",
+      "vsrc_params": {},
+      "vsrc_dc": "0",
+      "vsrc_ac": "0",
+      "vsrc_ac_phase": "0"
+    },
+    {
+      "type": "NMOS",
+      "label": "M1",
+      "value": "",
+      "gx": 6,
+      "gy": 4,
+      "rot": 0,
+      "flip": false,
+      "model_name": "sg13_lv_nmos",
+      "mos_w": "2.0u",
+      "mos_l": "0.45u"
+    },
+    {
+      "type": "R",
+      "label": "Rd",
+      "value": "5k",
+      "gx": 6,
+      "gy": 2,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "G1",
+      "value": "",
+      "gx": 2,
+      "gy": 5,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "G2",
+      "value": "",
+      "gx": 4,
+      "gy": 5,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "G3",
+      "value": "",
+      "gx": 6,
+      "gy": 5,
+      "rot": 0,
+      "flip": false
+    }
+  ],
+  "wires": [
+    {
+      "x1": 2,
+      "y1": 3,
+      "x2": 6,
+      "y2": 1
+    },
+    {
+      "x1": 6,
+      "y1": 1,
+      "x2": 6,
+      "y2": 2
+    },
+    {
+      "x1": 6,
+      "y1": 3,
+      "x2": 6,
+      "y2": 3
+    },
+    {
+      "x1": 4,
+      "y1": 3,
+      "x2": 5,
+      "y2": 4
+    },
+    {
+      "x1": 2,
+      "y1": 5,
+      "x2": 2,
+      "y2": 5
+    },
+    {
+      "x1": 4,
+      "y1": 5,
+      "x2": 4,
+      "y2": 5
+    },
+    {
+      "x1": 6,
+      "y1": 5,
+      "x2": 6,
+      "y2": 5
+    }
+  ],
+  "wirelabels": [],
+  "simulation": {
+    "analysis": "DC",
+    "params": {
+      "OP": [],
+      "DC": [
+        "Vin",
+        "0",
+        "1.5",
+        "0.01"
+      ],
+      "TRAN": [
+        "1n",
+        "1u",
+        "0"
+      ],
+      "AC": [
+        "dec",
+        "100",
+        "1",
+        "10G"
+      ],
+      "NOISE": [
+        "out",
+        "V1",
+        "dec",
+        "100",
+        "1",
+        "10G"
+      ]
+    }
+  },
+  "model_config": {
+    "mode": "lib",
+    "level": 1,
+    "file_path": "/home/ziad/pdk/ihp-sg13g2/libs.tech/ngspice/models/cornerMOSlv.lib",
+    "corner": "mos_tt",
+    "pdk_name": "ihp",
+    "device_models": {
+      "NMOS": {
+        "name": "sg13_lv_nmos",
+        "params": {},
+        "w": "1.0u",
+        "l": "0.45u"
+      },
+      "PMOS": {
+        "name": "sg13_lv_pmos",
+        "params": {},
+        "w": "2.0u",
+        "l": "0.45u"
+      },
+      "NPN": {
+        "name": "npn13G2",
+        "params": {},
+        "w": "",
+        "l": ""
+      },
+      "PNP": {
+        "name": "pnpMPA",
+        "params": {},
+        "w": "",
+        "l": ""
+      }
+    }
+  }
+}

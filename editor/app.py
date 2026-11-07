@@ -46,25 +46,51 @@ from symbols import draw_symbol, KNOWN_TYPES, DrawContext   # noqa: E402
 
 try:
     from editor.netlist import generate as generate_netlist, ModelConfig, \
-                               parse_model_file, LEVEL_LABELS
+                               parse_model_file, parse_model_file_corners, LEVEL_LABELS, _PINS
     _HAS_NETLIST = True
 except ImportError:
     try:
         from netlist import generate as generate_netlist, ModelConfig, \
-                            parse_model_file, LEVEL_LABELS
+                            parse_model_file, parse_model_file_corners, LEVEL_LABELS, _PINS
         _HAS_NETLIST = True
     except ImportError:
         _HAS_NETLIST = False
+        _PINS = {}
         class ModelConfig:           # type: ignore
-            def __init__(self, **kw): pass
+            def __init__(self, **kw):
+                self.pdk_name = kw.get("pdk_name", "")
+                self.mode = kw.get("mode", "inline")
+                self.level = kw.get("level", 1)
+                self.file_path = kw.get("file_path", "")
+                self.corner = kw.get("corner", "tt")
+                self.device_models = {}
             def to_dict(self): return {}
             @classmethod
             def from_dict(cls, d): return cls()
             def model_name(self, dt): return f"{dt}_GENERIC"
             def default_wl(self, dt): return ("2u","180n")
         def parse_model_file(p): return {"NMOS":[],"PMOS":[],"NPN":[],"PNP":[]}
+        def parse_model_file_corners(p): return []
         LEVEL_LABELS = {1:"Level 1",2:"Level 2",3:"Level 3",
                         "BSIM3":"BSIM3","BSIM4":"BSIM4"}
+
+try:
+    from editor.pdk import (
+        detect_installed_pdks, resolve_pdk, format_pdk_dim, PDK_SPECS
+    )
+    _HAS_PDK = True
+except ImportError:
+    try:
+        from pdk import (
+            detect_installed_pdks, resolve_pdk, format_pdk_dim, PDK_SPECS
+        )
+        _HAS_PDK = True
+    except ImportError:
+        _HAS_PDK = False
+        detect_installed_pdks = lambda: {}
+        resolve_pdk = lambda k: None
+        format_pdk_dim = lambda v, p: v
+        PDK_SPECS = {}
 
 try:
     from editor.simulation import find_ngspice, run as run_simulation, \
@@ -425,6 +451,7 @@ class Component:
         self.model_name : str = ""    # e.g. "nmos_rf"  — populated from Model Manager
         self.mos_w      : str = ""    # MOSFET width  e.g. "2u"
         self.mos_l      : str = ""    # MOSFET length e.g. "180n"
+        self.fingers    : int = 1     # parallel fingers / multiplier
         self.bulk_net   : str = "0"   # bulk/body connection
         # V-source structured waveform (set via V Properties dialog, not free text)
         self.vsrc_type    : str  = "DC" # active tab: DC|AC|SIN|PULSE|EXP|PWL|SFFM
@@ -432,6 +459,25 @@ class Component:
         self.vsrc_dc      : str  = "0"  # DC bias alongside transient waveforms
         self.vsrc_ac      : str  = "0"  # AC magnitude alongside transient waveforms
         self.vsrc_ac_phase: str  = "0"  # AC phase alongside transient waveforms
+
+    def update_mos_value(self):
+        """Keep self.value in sync with mos_w, mos_l, and fingers for canvas display."""
+        if self.type not in ("NMOS", "PMOS"):
+            return
+        w = self.mos_w
+        l = self.mos_l
+        if w and l:
+            val = f"W/L={w}/{l}"
+        elif w:
+            val = f"W={w}"
+        elif l:
+            val = f"L={l}"
+        else:
+            val = self.value or DEFAULTS.get(self.type, "")
+        fingers = getattr(self, "fingers", 1)
+        if fingers > 1:
+            val += f" M={fingers}"
+        self.value = val
 
     def to_dict(self) -> dict:
         d = {
@@ -442,6 +488,8 @@ class Component:
         if self.model_name: d["model_name"] = self.model_name
         if self.mos_w:      d["mos_w"]      = self.mos_w
         if self.mos_l:      d["mos_l"]      = self.mos_l
+        if getattr(self, "fingers", 1) > 1:
+            d["fingers"] = self.fingers
         if self.bulk_net and self.bulk_net != "0":
             d["bulk_net"] = self.bulk_net
         if self.type == "V":
@@ -481,7 +529,10 @@ class Component:
         c.model_name   = d.get("model_name",   "")
         c.mos_w        = d.get("mos_w",        "")
         c.mos_l        = d.get("mos_l",        "")
+        c.fingers      = d.get("fingers",      1)
         c.bulk_net     = d.get("bulk_net",     "0")
+        if c.type in ("NMOS", "PMOS") and (c.mos_w or c.mos_l):
+            c.update_mos_value()
         c.vsrc_type    = d.get("vsrc_type",    "DC")
         c.vsrc_params  = d.get("vsrc_params",  {})
         c.vsrc_dc      = d.get("vsrc_dc",      "0")
@@ -559,6 +610,15 @@ class Editor:
         self.mode   = "NORMAL"
         self.ws     = None
 
+        # Mouse interaction & drag-and-drop state
+        self._drag_target   = None
+        self._drag_type     = None   # "COMP" | "WLBL"
+        self._drag_start_gx = 0
+        self._drag_start_gy = 0
+        self._drag_press_x  = 0
+        self._drag_press_y  = 0
+        self._drag_moved    = False
+
         self.GS = GS_DEFAULT
         self._update_canvas_size()
 
@@ -566,6 +626,11 @@ class Editor:
         self.sim_config  = SimConfig()
         self.model_config = ModelConfig()       # project-level model settings
         self._model_names_cache: dict = {}      # parsed model names from file
+        self._pdk_cache = detect_installed_pdks()
+        if getattr(self.model_config, "pdk_name", ""):
+            resolved = resolve_pdk(self.model_config.pdk_name)
+            if resolved:
+                self._model_names_cache = dict(resolved.models)
         self._netlist_visible = False
         self._last_result     = None
         self._last_dir        = os.path.expanduser("~")
@@ -899,19 +964,244 @@ class Editor:
         cv = self.cv
         cv.bind("<KeyPress>",           self._on_key)
         cv.bind("<Button-1>",           self._on_click)
+        cv.bind("<B1-Motion>",          self._on_drag)
+        cv.bind("<ButtonRelease-1>",    self._on_release)
+        cv.bind("<Double-Button-1>",    self._on_double_click)
+        cv.bind("<Button-3>",           self._on_right_click)
+        cv.bind("<Motion>",             self._on_motion)
         cv.bind("<MouseWheel>",         self._on_wheel_y)
         cv.bind("<Button-4>",           lambda e: cv.yview_scroll(-1, "units"))
         cv.bind("<Button-5>",           lambda e: cv.yview_scroll(+1, "units"))
         cv.bind("<Shift-MouseWheel>",   self._on_wheel_x)
         cv.bind("<Control-MouseWheel>", self._on_ctrl_wheel)
 
+    # ── Mouse Interaction & Drag-and-Drop Helpers ──────────────────────────────
+    def _get_comp_pins(self, comp) -> list[tuple[int, int]]:
+        """Return world grid positions (rx, ry) of all pins of comp."""
+        pins = _PINS.get(comp.type, [])
+        rad = math.radians(comp.rot)
+        cr, sr = math.cos(rad), math.sin(rad)
+        flip = getattr(comp, "flip", False)
+        pts = []
+        for dx, dy, _ in pins:
+            fdx = -dx if flip else dx
+            rx = comp.gx + round(fdx * cr - dy * sr)
+            ry = comp.gy + round(fdx * sr + dy * cr)
+            pts.append((rx, ry))
+        return pts
+
+    def _find_comp_at(self, canvas_x: float, canvas_y: float) -> "Component | None":
+        """Find the component closest to (canvas_x, canvas_y), checking body and pins."""
+        gx_f = canvas_x / self.GS
+        gy_f = canvas_y / self.GS
+        best_c = None
+        best_dist = 1.35   # hit tolerance in grid steps
+
+        for c in self.comps:
+            d = math.hypot(c.gx - gx_f, c.gy - gy_f)
+            if d < best_dist:
+                best_dist = d
+                best_c = c
+
+            for rx, ry in self._get_comp_pins(c):
+                d_pin = math.hypot(rx - gx_f, ry - gy_f)
+                if d_pin < best_dist:
+                    best_dist = d_pin
+                    best_c = c
+
+        return best_c
+
+    def _find_wlbl_at(self, canvas_x: float, canvas_y: float) -> "WireLabel | None":
+        """Find a wire label at (canvas_x, canvas_y)."""
+        gx_f = canvas_x / self.GS
+        gy_f = canvas_y / self.GS
+        for wl in self.wlbls:
+            if math.hypot(wl.gx - gx_f, wl.gy - gy_f) < 0.9:
+                return wl
+        return None
+
     def _on_click(self, ev):
         self.cv.focus_set()
-        if self.mode == "MOUSE":
-            cx = int(self.cv.canvasx(ev.x) / self.GS)
-            cy = int(self.cv.canvasy(ev.y) / self.GS)
-            self.cursor[0] = max(0, min(COLS-1, cx))
-            self.cursor[1] = max(0, min(ROWS-1, cy))
+        mx = self.cv.canvasx(ev.x)
+        my = self.cv.canvasy(ev.y)
+        cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
+        cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+
+        if self.mode == "WIRE":
+            self.cursor = [cx, cy]
+            self._commit_wire()
+            return
+
+        c = self._find_comp_at(mx, my)
+        wl = self._find_wlbl_at(mx, my) if not c else None
+
+        if c:
+            self.cursor = [c.gx, c.gy]
+            self._drag_target = c
+            self._drag_type = "COMP"
+            self._drag_start_gx = c.gx
+            self._drag_start_gy = c.gy
+            self._drag_press_x = ev.x
+            self._drag_press_y = ev.y
+            self._drag_moved = False
+            self._status(f"Selected {c.label} ({c.type}) — drag to move, double-click for properties", "#38bdf8")
+        elif wl:
+            self.cursor = [wl.gx, wl.gy]
+            self._drag_target = wl
+            self._drag_type = "WLBL"
+            self._drag_start_gx = wl.gx
+            self._drag_start_gy = wl.gy
+            self._drag_press_x = ev.x
+            self._drag_press_y = ev.y
+            self._drag_moved = False
+            self._status(f"Selected label '{wl.text}' — drag to move", "#38bdf8")
+        else:
+            self.cursor = [cx, cy]
+            self._drag_target = None
+            self._drag_type = None
+            self._drag_moved = False
+            self._active_status = None
+
+        self._render()
+
+    def _on_drag(self, ev):
+        if self.mode == "WIRE":
+            mx = self.cv.canvasx(ev.x)
+            my = self.cv.canvasy(ev.y)
+            cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
+            cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+            if [cx, cy] != self.cursor:
+                self.cursor = [cx, cy]
+                self._render()
+            return
+
+        if not self._drag_target:
+            cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
+            cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+            if [cx, cy] != self.cursor:
+                self.cursor = [cx, cy]
+                self._render()
+            return
+
+        if not self._drag_moved:
+            if math.hypot(ev.x - self._drag_press_x, ev.y - self._drag_press_y) < 4:
+                return
+            self._drag_moved = True
+            try:
+                self.cv.config(cursor="fleur")
+            except Exception:
+                pass
+
+        mx = self.cv.canvasx(ev.x)
+        my = self.cv.canvasy(ev.y)
+        new_gx = max(1, min(COLS - 2, int(round(mx / self.GS))))
+        new_gy = max(1, min(ROWS - 2, int(round(my / self.GS))))
+
+        target = self._drag_target
+        if (new_gx, new_gy) == (target.gx, target.gy):
+            return
+
+        if self._drag_type == "COMP":
+            occ = next((c for c in self.comps if c is not target and c.gx == new_gx and c.gy == new_gy), None)
+            if occ:
+                self._status(f"[!] Cell ({new_gx}, {new_gy}) occupied by {occ.label}", "#f59e0b")
+                return
+
+            dx = new_gx - target.gx
+            dy = new_gy - target.gy
+
+            # Shift+drag stretches connected wire endpoints
+            shift_pressed = bool(ev.state & 0x0001)
+            if shift_pressed:
+                old_pins = set(self._get_comp_pins(target))
+                for w in self.wires:
+                    if (w.x1, w.y1) in old_pins:
+                        w.x1 += dx; w.y1 += dy
+                    if (w.x2, w.y2) in old_pins:
+                        w.x2 += dx; w.y2 += dy
+
+            target.gx = new_gx
+            target.gy = new_gy
+            self.cursor = [new_gx, new_gy]
+            shift_info = " [+wires]" if shift_pressed else " (hold Shift to stretch wires)"
+            self._status(f"Moving {target.label} → ({new_gx}, {new_gy}){shift_info}", "#a78bfa")
+            self._render()
+
+        elif self._drag_type == "WLBL":
+            target.gx = new_gx
+            target.gy = new_gy
+            self.cursor = [new_gx, new_gy]
+            self._status(f"Moving label '{target.text}' → ({new_gx}, {new_gy})", "#a78bfa")
+            self._render()
+
+    def _on_release(self, ev):
+        try:
+            self.cv.config(cursor="")
+        except Exception:
+            pass
+        if self._drag_target and self._drag_moved:
+            target = self._drag_target
+            name = getattr(target, "label", getattr(target, "text", "Item"))
+            if (target.gx, target.gy) != (self._drag_start_gx, self._drag_start_gy):
+                self._status(f"✓ Moved {name} to ({target.gx}, {target.gy})", "#4ade80")
+            else:
+                self._status(f"· {name} at ({target.gx}, {target.gy})", "#94a3b8")
+            self._render()
+        self._drag_target = None
+        self._drag_type   = None
+        self._drag_moved  = False
+
+    def _on_double_click(self, ev):
+        """Double clicking on an instance opens its Properties dialog."""
+        mx = self.cv.canvasx(ev.x)
+        my = self.cv.canvasy(ev.y)
+        c = self._find_comp_at(mx, my)
+        if c:
+            self.cursor = [c.gx, c.gy]
+            self._render()
+            self._start_edit()
+
+    def _on_right_click(self, ev):
+        """Right click: in WIRE mode cancels wire; on a component rotates it 90°."""
+        if self.mode == "WIRE":
+            self.mode = "NORMAL"
+            self.ws = None
+            self._status("Wire cancelled", "#94a3b8")
+            self._render()
+            return
+        mx = self.cv.canvasx(ev.x)
+        my = self.cv.canvasy(ev.y)
+        c = self._find_comp_at(mx, my)
+        if c:
+            self.cursor = [c.gx, c.gy]
+            self._rotate()
+            self._status(f"↻ Rotated {c.label} to {c.rot}°", "#38bdf8")
+
+    def _on_motion(self, ev):
+        """Update cursor position, appearance on hover, and wire guide in WIRE mode."""
+        mx = self.cv.canvasx(ev.x)
+        my = self.cv.canvasy(ev.y)
+        cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
+        cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+
+        # If currently dragging an item, drag handler manages motion
+        if self._drag_moved:
+            return
+
+        # Update hover cursor appearance over clickable/draggable objects
+        c = self._find_comp_at(mx, my)
+        wl = self._find_wlbl_at(mx, my) if not c else None
+        try:
+            if c or wl:
+                self.cv.config(cursor="hand2")
+            else:
+                self.cv.config(cursor="")
+        except Exception:
+            pass
+
+        # Move the grid cursor with the mouse whenever it enters a new cell
+        if [cx, cy] != self.cursor:
+            self.cursor = [cx, cy]
             self._render()
 
     def _on_wheel_y(self, ev):
@@ -958,7 +1248,8 @@ class Editor:
         gx, gy = self.cursor
         return next((c for c in self.comps if c.gx==gx and c.gy==gy), None)
 
-    def _status(self, msg, col="#1e2c3a"):
+    def _status(self, msg, col="#1e2c3a", sticky=True):
+        self._active_status = (msg, col) if sticky else None
         self.lbl_status.config(text=msg, fg=col)
 
     def _place(self, typ):
@@ -970,7 +1261,19 @@ class Editor:
     def _place_device(self, typ):
         if self._at_cursor():
             self._status("[!] Cell occupied — move cursor first", "#f87171"); return
-        self.comps.append(Component(typ, *self.cursor))
+        c = Component(typ, *self.cursor)
+        if typ in ("NMOS", "PMOS"):
+            dw, dl = self.model_config.default_wl(typ)
+            if dw or dl:
+                c.mos_w = dw
+                c.mos_l = dl
+                c.update_mos_value()
+            c.model_name = self.model_config.model_name(typ)
+        elif typ in ("NPN", "PNP"):
+            c.model_name = self.model_config.model_name(typ)
+            if c.model_name and not c.model_name.endswith("_GENERIC"):
+                c.value = c.model_name
+        self.comps.append(c)
         self._render()
 
     def _rotate(self):
@@ -1727,6 +2030,7 @@ class Editor:
             c.bulk_net   = r["bulk_net"]
             try:   c.fingers = int(r["fingers"])
             except: c.fingers = 1
+            c.update_mos_value()
             self._status(
                 f"✓ {c.label}  model={c.model_name}  "
                 f"W={c.mos_w} L={c.mos_l}", "#4ade80")
@@ -1832,6 +2136,8 @@ class Editor:
             lbl, mdl = result[0]
             if lbl: c.label = lbl
             c.model_name = mdl
+            if mdl and not mdl.endswith("_GENERIC"):
+                c.value = mdl
             self._status(f"✓ {c.label}  model={c.model_name}", "#4ade80")
             self._render()
 
@@ -1859,6 +2165,22 @@ class Editor:
 
         body = tk.Frame(dlg, bg=PANEL_BG)
         body.pack(fill=tk.X, padx=22, pady=4)
+
+        # ── PDK Presets ──
+        installed_pdks = detect_installed_pdks()
+        sv_pdk = tk.StringVar(value=getattr(mc, "pdk_name", "") or "none")
+
+        pdk_frame = tk.LabelFrame(body, text="  PDK Preset (Auto-Config)  ",
+            bg=PANEL_BG, fg="#38bdf8",
+            font=("Helvetica", 9, "bold"), bd=1, relief="solid")
+        pdk_frame.pack(fill=tk.X, pady=(0, 10))
+
+        pdk_radio_frame = tk.Frame(pdk_frame, bg=PANEL_BG)
+        pdk_radio_frame.pack(fill=tk.X, padx=6, pady=3)
+
+        lbl_pdk_status = tk.Label(pdk_frame, text="", bg=PANEL_BG, fg="#94a3b8",
+                                  font=("Helvetica", 8), anchor="w", padx=8, pady=1)
+        lbl_pdk_status.pack(fill=tk.X)
 
         # ── Mode selector ──
         sv_mode = tk.StringVar(value=mc.mode)
@@ -1939,12 +2261,22 @@ class Editor:
         corner_menu.config(bg="#0c1020", fg="#e2e8f0",
             activebackground="#1e2c3e", activeforeground="#f0f0f0",
             font=("Courier", 9), relief="flat", bd=0,
-            highlightthickness=0, width=6)
+            highlightthickness=0, width=12)
         corner_menu["menu"].config(bg="#0c1020", fg="#e2e8f0", font=("Courier",9))
         corner_menu.pack(side=tk.LEFT, padx=(4,0))
-        tk.Label(fr2, text="  (for .lib files only)",
+        tk.Label(fr2, text="  (for .lib / PDK files)",
             bg=PANEL_BG, fg="#4b5563",
             font=("Helvetica", 8)).pack(side=tk.LEFT)
+
+        def _update_corner_menu(opts, default=None):
+            corner_menu["menu"].delete(0, "end")
+            for c in opts:
+                corner_menu["menu"].add_command(
+                    label=c, command=lambda val=c: sv_corner.set(val))
+            if default:
+                sv_corner.set(default)
+            elif opts and sv_corner.get() not in opts:
+                sv_corner.set(opts[0])
 
         # ── Detected models list ──
         det_frame = tk.LabelFrame(body, text="  Detected Models  ",
@@ -1958,7 +2290,60 @@ class Editor:
             state=tk.DISABLED, padx=6, pady=4)
         det_text.pack(fill=tk.X, padx=4, pady=4)
 
+        def _set_detected_text(txt):
+            det_text.config(state=tk.NORMAL)
+            det_text.delete("1.0", tk.END)
+            det_text.insert(tk.END, txt)
+            det_text.config(state=tk.DISABLED)
+
+        # ── PDK selection callback ──
+        def _on_pdk_select():
+            val = sv_pdk.get()
+            if val == "none":
+                lbl_pdk_status.config(text="Custom/Inline model mode", fg="#94a3b8")
+                return
+            pdk = installed_pdks.get(val)
+            if not pdk:
+                lbl_pdk_status.config(text=f"[!] PDK '{val}' not recognized", fg="#ef4444")
+                return
+            if not pdk.available:
+                lbl_pdk_status.config(
+                    text=f"[!] PDK files not found at: {pdk.pdk_dir}", fg="#f59e0b")
+            else:
+                lbl_pdk_status.config(
+                    text=f"✓ Detected at: {pdk.pdk_dir}", fg="#4ade80")
+
+            sv_mode.set("lib")
+            sv_file.set(pdk.lib_file)
+            _update_corner_menu(pdk.corners, pdk.default_corner)
+            self._model_names_cache = dict(pdk.models)
+
+            lines = [f"  PDK: {pdk.display_name}", f"  Root: {pdk.pdk_dir}", ""]
+            for dt in ("NMOS", "PMOS", "NPN", "PNP"):
+                models = pdk.models.get(dt, [])
+                if models:
+                    lines.append(f"  {dt}:")
+                    for m in models:
+                        lines.append(f"    ✓  {m}")
+            _set_detected_text("\n".join(lines))
+
+        pdk_radio_items = [
+            ("none",   "None / Custom"),
+            ("gf180",  "GF180MCU"),
+            ("sky130", "SkyWater 130"),
+            ("ihp",    "IHP SG13G2"),
+        ]
+        for pval, plbl in pdk_radio_items:
+            tk.Radiobutton(pdk_radio_frame, text=plbl, variable=sv_pdk, value=pval,
+                command=_on_pdk_select,
+                bg=PANEL_BG, fg="#cbd5e1", selectcolor="#0f172a",
+                activebackground=PANEL_BG, activeforeground="#38bdf8",
+                font=("Helvetica", 9), anchor="w"
+            ).pack(side=tk.LEFT, padx=6, pady=2)
+
         def _parse_file(path=None):
+            if sv_pdk.get() != "none":
+                return  # PDK mode manages its own catalog
             p = path or sv_file.get().strip()
             if not p or not os.path.isfile(p):
                 _set_detected_text(
@@ -1966,7 +2351,9 @@ class Editor:
                     else f"[!] File not found:\n{p}")
                 return
             found = parse_model_file(p)
-            # Update the live cache
+            corners = parse_model_file_corners(p)
+            if corners:
+                _update_corner_menu(corners)
             self._model_names_cache = found
             lines = [f"  File: {os.path.basename(p)}", ""]
             total = 0
@@ -1978,19 +2365,15 @@ class Editor:
                     for n in names:
                         lines.append(f"    ✓  {n}")
             if total == 0:
-                lines.append("  [!] No .model definitions found")
-                lines.append("  Check that the file uses:")
-                lines.append("  .model <name> NMOS|PMOS|NPN|PNP (...)")
+                lines.append("  [!] No .model or .subckt definitions found")
             _set_detected_text("\n".join(lines))
 
-        def _set_detected_text(txt):
-            det_text.config(state=tk.NORMAL)
-            det_text.delete("1.0", tk.END)
-            det_text.insert(tk.END, txt)
-            det_text.config(state=tk.DISABLED)
-
         # Populate on open
-        if mc.file_path and os.path.isfile(mc.file_path):
+        cur_pdk = getattr(mc, "pdk_name", "")
+        if cur_pdk and cur_pdk in installed_pdks:
+            sv_pdk.set(cur_pdk)
+            _on_pdk_select()
+        elif mc.file_path and os.path.isfile(mc.file_path):
             _parse_file(mc.file_path)
         elif mc.mode == "inline":
             _set_detected_text(
@@ -2000,7 +2383,7 @@ class Editor:
                 "  NPN_GENERIC   (IS=1e-14 BF=100   VAF=50)\n"
                 "  PNP_GENERIC   (IS=1e-14 BF=50    VAF=50)")
         else:
-            _set_detected_text("  No file configured yet — click Browse…")
+            _set_detected_text("  No file configured yet — click Browse… or choose a PDK")
 
         sv_file.trace_add("write", lambda *_: _parse_file())
 
@@ -2009,11 +2392,13 @@ class Editor:
             level_val = sv_level.get()
             try:    level_val = int(level_val)
             except: pass   # stays as "BSIM3" / "BSIM4"
+            pdk_val = sv_pdk.get()
             result[0] = {
                 "mode":      sv_mode.get(),
                 "level":     level_val,
                 "file_path": sv_file.get().strip(),
                 "corner":    sv_corner.get(),
+                "pdk_name":  "" if pdk_val == "none" else pdk_val,
             }
             dlg.destroy()
 
@@ -2044,22 +2429,38 @@ class Editor:
             self.model_config.level     = r["level"]
             self.model_config.file_path = r["file_path"]
             self.model_config.corner    = r["corner"]
-            # Re-parse so the cache is fresh when Properties dialogs open
-            if r["file_path"]:
+            self.model_config.pdk_name  = r.get("pdk_name", "")
+            if r.get("pdk_name"):
+                resolved = resolve_pdk(r["pdk_name"])
+                if resolved:
+                    self._model_names_cache = dict(resolved.models)
+                    for dt in ("NMOS", "PMOS", "NPN", "PNP"):
+                        if dt in resolved.default_models:
+                            self.model_config.device_models[dt]["name"] = resolved.default_models[dt]
+            elif r["file_path"]:
                 self._model_names_cache = parse_model_file(r["file_path"])
             elif r["mode"] == "inline":
                 self._model_names_cache = {}   # use generic names
-            mode_lbl = {"inline":"inline","include":".include","lib":".lib"}[r["mode"]]
+
+            try:
+                if self.model_config.pdk_name:
+                    self.btn_models.config(text=f"⚛ Models: {self.model_config.pdk_name.upper()}")
+                else:
+                    self.btn_models.config(text="⚛ Models")
+            except Exception:
+                pass
+
+            mode_lbl = self.model_config.pdk_name.upper() if self.model_config.pdk_name else {"inline":"inline","include":".include","lib":".lib"}[r["mode"]]
             self._status(
                 f"✓ Models: {mode_lbl}"
-                + (f"  {os.path.basename(r['file_path'])}" if r["file_path"] else "")
-                + (f"  [{r['corner']}]" if r["mode"]=="lib" else ""),
-                "#f87171")
+                + (f"  [{r['corner']}]" if r["mode"]=="lib" or self.model_config.pdk_name else "")
+                + (f"  {os.path.basename(r['file_path'])}" if r["file_path"] and not self.model_config.pdk_name else ""),
+                "#38bdf8" if self.model_config.pdk_name else "#f87171")
 
     def _open_cmd(self):
         cmd = self._ask("Command",
             "nmos  pmos  npn  pnp  ·  in  out  inout  vdd  vss  ·  "
-            "sim  ·  save  load  netlist  savesvg  savepng  doc clear",
+            "pdk  sim  ·  save  load  netlist  savesvg  savepng  doc clear",
             color="#c21820")
         if cmd and cmd.strip():
             self._exec_cmd(cmd.strip())
@@ -2080,6 +2481,42 @@ class Editor:
             _map = {"pin":"PIN_IN","in":"PIN_IN","out":"PIN_OUT",
                     "inout":"PIN_INOUT","vdd":"PIN_VDD","vss":"PIN_VSS"}
             self._place_device(_map[cmd])
+        elif cmd in ("pdk", "pdks"):
+            if not arg or arg in ("status", "list"):
+                pdks = detect_installed_pdks()
+                cur = getattr(self.model_config, "pdk_name", "") or "none (inline)"
+                avail = ", ".join(f"{k} ({'✓' if v.available else '✗'})" for k, v in pdks.items())
+                self._status(f"Active PDK: {cur}  ·  Available: {avail}  ·  Usage: :pdk <sky130|gf180|ihp|none> [corner]", "#38bdf8")
+            elif arg in ("none", "inline", "clear", "custom"):
+                self.model_config.pdk_name = ""
+                self.model_config.mode = "inline"
+                self.model_config.file_path = ""
+                self._model_names_cache = {}
+                try: self.btn_models.config(text="⚛ Models")
+                except Exception: pass
+                self._status("✓ Switched to Inline Level 1 models", "#4ade80")
+                self._render()
+            else:
+                pdk_key = arg.lower()
+                resolved = resolve_pdk(pdk_key)
+                if not resolved:
+                    self._status(f"[!] Unknown PDK: '{arg}'. Options: sky130, gf180, ihp, none", "#ef4444")
+                else:
+                    corner = parts[2].lower() if len(parts) > 2 else resolved.default_corner
+                    self.model_config.pdk_name = resolved.key
+                    self.model_config.mode = "lib"
+                    self.model_config.file_path = resolved.lib_file
+                    self.model_config.corner = corner
+                    self._model_names_cache = dict(resolved.models)
+                    for dt in ("NMOS", "PMOS", "NPN", "PNP"):
+                        if dt in resolved.default_models:
+                            self.model_config.device_models[dt]["name"] = resolved.default_models[dt]
+                    try: self.btn_models.config(text=f"⚛ Models: {resolved.key.upper()}")
+                    except Exception: pass
+                    status_icon = "✓" if resolved.available else "[!] (files not found)"
+                    self._status(f"{status_icon} PDK set to {resolved.display_name} [{corner}]",
+                                 "#4ade80" if resolved.available else "#f59e0b")
+                    self._render()
         elif cmd in ("sim","analysis","simulate"):
             self._open_sim_dialog()
         elif cmd == "save":
@@ -2149,12 +2586,26 @@ class Editor:
                 self.sim_config = SimConfig.from_dict(data["simulation"])
             if "model_config" in data:
                 self.model_config = ModelConfig.from_dict(data["model_config"])
-                # Refresh parsed-model cache if an external file is configured
-                fp = self.model_config.file_path
-                if fp and os.path.isfile(fp):
-                    self._model_names_cache = parse_model_file(fp)
+                # Refresh parsed-model cache if PDK or an external file is configured
+                pdk_name = getattr(self.model_config, "pdk_name", "")
+                if pdk_name:
+                    resolved = resolve_pdk(pdk_name)
+                    if resolved:
+                        self._model_names_cache = dict(resolved.models)
+                        try:
+                            self.btn_models.config(text=f"⚛ Models: {pdk_name.upper()}")
+                        except Exception:
+                            pass
                 else:
-                    self._model_names_cache = {}
+                    fp = self.model_config.file_path
+                    if fp and os.path.isfile(fp):
+                        self._model_names_cache = parse_model_file(fp)
+                    else:
+                        self._model_names_cache = {}
+                    try:
+                        self.btn_models.config(text="⚛ Models")
+                    except Exception:
+                        pass
             self._status(
                 f"✓ Loaded {len(self.comps)} comp · {len(self.wires)} wire"
                 f" from {os.path.basename(path)}", "#4ade80")
@@ -2257,6 +2708,8 @@ class Editor:
             L.append(f'<text x="{lx:.1f}" y="{ly:.1f}" fill="{LBL_NORMAL}" '
                      f'font-family="Helvetica" font-size="{fs_lbl}" '
                      f'font-weight="bold" text-anchor="middle">{comp.label}</text>')
+            if comp.type in ("NMOS", "PMOS") and (comp.mos_w or comp.mos_l):
+                comp.update_mos_value()
             if comp.value:
                 L.append(f'<text x="{lx:.1f}" y="{vy:.1f}" fill="{VAL_NORMAL}" '
                          f'font-family="Helvetica" font-size="{fs_val}" '
@@ -2724,6 +3177,8 @@ class Editor:
                 vx0,vy0 = Tp(vx,vy)
                 cv.create_text(lx0,ly0, text=comp.label,
                     fill=lc, font=f_lbl, anchor="center")
+                if comp.type in ("NMOS", "PMOS") and (comp.mos_w or comp.mos_l):
+                    comp.update_mos_value()
                 if comp.value:
                     cv.create_text(vx0,vy0, text=comp.value,
                         fill=vc, font=f_val, anchor="center")
@@ -2755,12 +3210,16 @@ class Editor:
         bg_,fg_ = MODE_COLS.get(self.mode,("#0d1117","#c9d1d9"))
         self.lbl_mode.config(text=self.mode, bg=bg_, fg=fg_)
 
-        pil_note = "" if _PILLOW else "  [pip install pillow for PNG]"
-        self._status(
-            f"{len(self.comps)} comp · {len(self.wires)} wire · "
-            f"{len(self.wlbls)} net label  │  "
-            "arrows=move · R/C/L/V/I/G · W=wire · T=net label · "
-            f"Spc=rot · F=flip · E=edit · :=cmd (in/out/vdd/...) · +/-=zoom{pil_note}")
+        if getattr(self, "_active_status", None):
+            self.lbl_status.config(text=self._active_status[0], fg=self._active_status[1])
+        else:
+            pil_note = "" if _PILLOW else "  [pip install pillow for PNG]"
+            self.lbl_status.config(
+                text=f"{len(self.comps)} comp · {len(self.wires)} wire · "
+                     f"{len(self.wlbls)} net label  │  "
+                     "mouse=drag/move · arrows · R/C/L/V/I/G · W=wire · T=net label · "
+                     f"Spc=rot · F=flip · E=edit · :=cmd · +/-=zoom{pil_note}",
+                fg="#1e2c3a")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

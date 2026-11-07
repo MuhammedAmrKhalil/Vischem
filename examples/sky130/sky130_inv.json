@@ -1,0 +1,182 @@
+{
+  "version": "0.6",
+  "components": [
+    {
+      "type": "V",
+      "label": "Vdd",
+      "value": "1.8V",
+      "gx": 2,
+      "gy": 4,
+      "rot": 0,
+      "flip": false,
+      "vsrc_type": "DC",
+      "vsrc_params": {},
+      "vsrc_dc": "0",
+      "vsrc_ac": "0",
+      "vsrc_ac_phase": "0"
+    },
+    {
+      "type": "V",
+      "label": "Vin",
+      "value": "0.9V",
+      "gx": 4,
+      "gy": 4,
+      "rot": 0,
+      "flip": false,
+      "vsrc_type": "DC",
+      "vsrc_params": {},
+      "vsrc_dc": "0",
+      "vsrc_ac": "0",
+      "vsrc_ac_phase": "0"
+    },
+    {
+      "type": "PMOS",
+      "label": "M1",
+      "value": "",
+      "gx": 6,
+      "gy": 2,
+      "rot": 0,
+      "flip": false,
+      "model_name": "sky130_fd_pr__pfet_01v8",
+      "mos_w": "2u",
+      "mos_l": "0.15u",
+      "bulk_net": "VDD"
+    },
+    {
+      "type": "NMOS",
+      "label": "M2",
+      "value": "",
+      "gx": 6,
+      "gy": 4,
+      "rot": 0,
+      "flip": false,
+      "model_name": "sky130_fd_pr__nfet_01v8",
+      "mos_w": "1u",
+      "mos_l": "0.15u"
+    },
+    {
+      "type": "G",
+      "label": "G1",
+      "value": "",
+      "gx": 2,
+      "gy": 5,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "G2",
+      "value": "",
+      "gx": 4,
+      "gy": 5,
+      "rot": 0,
+      "flip": false
+    },
+    {
+      "type": "G",
+      "label": "G3",
+      "value": "",
+      "gx": 6,
+      "gy": 5,
+      "rot": 0,
+      "flip": false
+    }
+  ],
+  "wires": [
+    {
+      "x1": 2,
+      "y1": 3,
+      "x2": 6,
+      "y2": 1
+    },
+    {
+      "x1": 4,
+      "y1": 3,
+      "x2": 5,
+      "y2": 2
+    },
+    {
+      "x1": 5,
+      "y1": 2,
+      "x2": 5,
+      "y2": 4
+    },
+    {
+      "x1": 6,
+      "y1": 3,
+      "x2": 6,
+      "y2": 3
+    },
+    {
+      "x1": 6,
+      "y1": 5,
+      "x2": 6,
+      "y2": 5
+    }
+  ],
+  "wirelabels": [],
+  "simulation": {
+    "analysis": "DC",
+    "params": {
+      "OP": [],
+      "DC": [
+        "Vin",
+        "0",
+        "1.8",
+        "0.05"
+      ],
+      "TRAN": [
+        "1n",
+        "1u",
+        "0"
+      ],
+      "AC": [
+        "dec",
+        "100",
+        "1",
+        "10G"
+      ],
+      "NOISE": [
+        "out",
+        "V1",
+        "dec",
+        "100",
+        "1",
+        "10G"
+      ]
+    }
+  },
+  "model_config": {
+    "mode": "lib",
+    "level": 1,
+    "file_path": "/home/ziad/pdk/sky130A/libs.tech/ngspice/sky130.lib.spice",
+    "corner": "tt",
+    "pdk_name": "sky130",
+    "device_models": {
+      "NMOS": {
+        "name": "sky130_fd_pr__nfet_01v8",
+        "params": {},
+        "w": "1u",
+        "l": "0.15u"
+      },
+      "PMOS": {
+        "name": "sky130_fd_pr__pfet_01v8",
+        "params": {},
+        "w": "2u",
+        "l": "0.15u"
+      },
+      "NPN": {
+        "name": "sky130_fd_pr__npn_05v5",
+        "params": {},
+        "w": "",
+        "l": ""
+      },
+      "PNP": {
+        "name": "sky130_fd_pr__pnp_05v5",
+        "params": {},
+        "w": "",
+        "l": ""
+      }
+    }
+  }
+}

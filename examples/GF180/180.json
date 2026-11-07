@@ -9,9 +9,9 @@
       "gy": 5,
       "rot": 0,
       "flip": false,
-      "model_name": "nfet_03v3.0",
+      "model_name": "nfet_03v3",
       "mos_w": "2u",
-      "mos_l": "180n"
+      "mos_l": "0.28u"
     },
     {
       "type": "V",
@@ -134,10 +134,10 @@
     }
   },
   "model_config": {
-    "mode": "include",
+    "mode": "lib",
     "level": 1,
     "file_path": "C:/Users/mamr2/OneDrive/Desktop/sm141064.ngspice",
-    "corner": "tt",
+    "corner": "typical",
     "device_models": {
       "NMOS": {
         "name": "NMOS_GENERIC",
@@ -189,6 +189,7 @@
         "w": "",
         "l": ""
       }
-    }
+    },
+    "pdk_name": "gf180"
   }
 }

@@ -63,6 +63,24 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+try:
+    from editor.pdk import (
+        resolve_pdk, format_pdk_dim, detect_installed_pdks,
+        PDK_SPECS, PDK_ALIASES, ResolvedPDK
+    )
+except ImportError:
+    try:
+        from pdk import (
+            resolve_pdk, format_pdk_dim, detect_installed_pdks,
+            PDK_SPECS, PDK_ALIASES, ResolvedPDK
+        )
+    except ImportError:
+        resolve_pdk = lambda k: None
+        format_pdk_dim = lambda v, p: v
+        detect_installed_pdks = lambda: {}
+        PDK_SPECS = {}
+        PDK_ALIASES = {}
+
 if TYPE_CHECKING:
     pass   # avoid circular import with editor
 
@@ -204,9 +222,27 @@ class ModelConfig:
     level        : object = 1        # 1 | 2 | 3 | "BSIM3" | "BSIM4"
     file_path    : str  = ""
     corner       : str  = "tt"
+    pdk_name     : str  = ""         # "" | "gf180" | "sky130" | "ihp"
     device_models: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        # If a known PDK is specified, load its preset parameters
+        if self.pdk_name:
+            resolved = resolve_pdk(self.pdk_name)
+            if resolved:
+                self.mode = "lib"
+                if not self.corner or self.corner == "tt":
+                    self.corner = resolved.default_corner
+                if not self.file_path:
+                    self.file_path = resolved.lib_file
+                for dt in ("NMOS", "PMOS", "NPN", "PNP"):
+                    if dt not in self.device_models or not self.device_models[dt].get("name"):
+                        w, l = resolved.default_wl.get(dt, ("", ""))
+                        self.device_models[dt] = {
+                            "name": resolved.default_models.get(dt, _DEFAULT_MODEL_NAMES.get(dt, "UNKNOWN")),
+                            "params": {},
+                            "w": w, "l": l,
+                        }
         # Ensure all four device types exist with sane defaults
         for dt in ("NMOS", "PMOS", "NPN", "PNP"):
             if dt not in self.device_models:
@@ -224,6 +260,7 @@ class ModelConfig:
             "level":         self.level,
             "file_path":     self.file_path,
             "corner":        self.corner,
+            "pdk_name":      self.pdk_name,
             "device_models": self.device_models,
         }
 
@@ -234,6 +271,7 @@ class ModelConfig:
             level     = d.get("level",     1),
             file_path = d.get("file_path", ""),
             corner    = d.get("corner",    "tt"),
+            pdk_name  = d.get("pdk_name",  ""),
         )
         # Restore saved per-device config, merging over defaults
         for dt, saved in d.get("device_models", {}).items():
@@ -252,8 +290,16 @@ class ModelConfig:
     def default_wl(self, device_type: str) -> tuple[str, str]:
         """Return (W, L) defaults for a MOSFET device type."""
         dm = self.device_models.get(device_type, {})
-        w = dm.get("w") or _DEFAULT_WL.get(device_type, ("2u", "180n"))[0]
-        l = dm.get("l") or _DEFAULT_WL.get(device_type, ("2u", "180n"))[1]
+        w = dm.get("w")
+        l = dm.get("l")
+        if w and l:
+            return w, l
+        if self.pdk_name:
+            resolved = resolve_pdk(self.pdk_name)
+            if resolved and device_type in resolved.default_wl:
+                return resolved.default_wl[device_type]
+        w = w or _DEFAULT_WL.get(device_type, ("2u", "180n"))[0]
+        l = l or _DEFAULT_WL.get(device_type, ("2u", "180n"))[1]
         return w, l
 
 
@@ -334,28 +380,59 @@ def _vsrc_spice_fallback(vsrc_type: str, vsrc_params: dict,
     return f"DC {dc}"
 
 
-# ── Model file parser ──────────────────────────────────────────────────────────
-def parse_model_file(path: str) -> dict[str, list[str]]:
+# ── Model file parser & device classifier ─────────────────────────────────────
+def classify_device_name(name: str) -> str | None:
+    nl = name.lower()
+    # Check BJTs first
+    if any(k in nl for k in ("npn", "vnpn", "hbt")):
+        return "NPN"
+    if any(k in nl for k in ("pnp", "vpnp")):
+        return "PNP"
+    # Check MOSFETs
+    if any(k in nl for k in ("nfet", "nmos", "nch", "lv_nmos", "hv_nmos")):
+        return "NMOS"
+    if any(k in nl for k in ("pfet", "pmos", "pch", "lv_pmos", "hv_pmos")):
+        return "PMOS"
+    return None
+
+
+def parse_model_file_corners(path: str) -> list[str]:
+    """Scan a .lib / .spice file and extract all .lib <corner> section names."""
+    corners = []
+    if not path or not os.path.isfile(path):
+        return corners
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = re.match(r"^\.lib\s+['\"]?([a-zA-Z0-9_]+)['\"]?", line.strip(), re.I)
+                if m:
+                    c = m.group(1).strip()
+                    if not any(c.lower().endswith(ext) for ext in ('.lib', '.spice', '.sp', '.ngspice', '.spi', '.mod')):
+                        if c not in corners:
+                            corners.append(c)
+    except Exception:
+        pass
+    return corners
+
+
+def parse_model_file(path: str, max_depth: int = 2, _visited: set | None = None) -> dict[str, list[str]]:
     """
-    Scan a .sp / .lib / .spi file and extract all .model definitions.
+    Scan a .sp / .lib / .spi file and extract all .model and .subckt definitions.
+    Follows nested .include and .lib files up to max_depth.
 
     Returns
     -------
     {device_type: [model_name, ...]}
-    e.g. {"NMOS": ["nmos_rf", "nmos_lvt"], "PMOS": ["pmos_lvt"], "NPN": [], "PNP": []}
-
-    Handles:
-      .model  name  NMOS  (...)
-      .model  name  PMOS  (...)
-      .model  name  NPN   (...)
-      .model  name  PNP   (...)
-      .MODEL  (case-insensitive)
-    Multi-line continuations (+) are collapsed before parsing.
+    e.g. {"NMOS": ["nfet_03v3", ...], "PMOS": ["pfet_03v3", ...], "NPN": [], "PNP": []}
     """
+    if _visited is None:
+        _visited = set()
     result: dict[str, list[str]] = {"NMOS": [], "PMOS": [], "NPN": [], "PNP": []}
 
-    if not path or not os.path.isfile(path):
+    if not path or not os.path.isfile(path) or path in _visited or max_depth < 0:
         return result
+    _visited.add(os.path.abspath(path))
+    base_dir = os.path.dirname(os.path.abspath(path))
 
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
@@ -370,14 +447,23 @@ def parse_model_file(path: str) -> dict[str, list[str]]:
         line = line.strip()
         if not line or line.startswith("*"):
             continue
+
+        # Match: .subckt <name>
+        m_sub = re.match(r"^\.subckt\s+([a-zA-Z0-9_.]+)", line, re.I)
+        if m_sub:
+            name = m_sub.group(1)
+            cat = classify_device_name(name)
+            if cat and name not in result[cat]:
+                result[cat].append(name)
+            continue
+
         # Match:  .model  <name>  <type>  [optional params]
         m = re.match(
-            r"\.model\s+(\S+)\s+(NMOS|PMOS|NPN|PNP|NMOS\w*|PMOS\w*)",
-            line, re.IGNORECASE)
+            r"^\.model\s+(\S+)\s+(NMOS|PMOS|NPN|PNP|NMOS\w*|PMOS\w*)",
+            line, re.I)
         if m:
             name  = m.group(1)
             dtype = m.group(2).upper()
-            # Normalise to the four canonical keys
             if dtype.startswith("NMOS"): dtype = "NMOS"
             elif dtype.startswith("PMOS"): dtype = "PMOS"
             elif dtype == "NPN": pass
@@ -385,6 +471,20 @@ def parse_model_file(path: str) -> dict[str, list[str]]:
             else: continue
             if name not in result[dtype]:
                 result[dtype].append(name)
+            continue
+
+        # Match nested .include / .lib to follow recursively
+        m_inc = re.match(r"^\.(?:include|lib)\s+['\"]?([^\s'\"]+)['\"]?", line, re.I)
+        if m_inc and max_depth > 0:
+            target = m_inc.group(1).strip()
+            if not os.path.isabs(target):
+                target = os.path.join(base_dir, target)
+            if os.path.isfile(target) and target not in _visited:
+                sub = parse_model_file(target, max_depth=max_depth - 1, _visited=_visited)
+                for k in result:
+                    for item in sub[k]:
+                        if item not in result[k]:
+                            result[k].append(item)
 
     return result
 
@@ -475,6 +575,22 @@ def _emit_model_header(model_config: "ModelConfig | None") -> list[str]:
         ]
 
     lines: list[str] = []
+
+    # 1. Check if a PDK preset is selected
+    if getattr(model_config, "pdk_name", ""):
+        resolved = resolve_pdk(model_config.pdk_name)
+        if resolved:
+            lines.append(f"* ── {resolved.display_name} Models ──────────────────────────")
+            corner = model_config.corner or resolved.default_corner
+            for inc in resolved.include_files:
+                lines.append(f'.include "{inc}"')
+            lib_f = model_config.file_path if (model_config.file_path and os.path.isfile(model_config.file_path)) else resolved.lib_file
+            lines.append(f'.lib "{lib_f}" {corner}')
+            if resolved.secondary_lib_file and os.path.isfile(resolved.secondary_lib_file):
+                lines.append(f'.lib "{resolved.secondary_lib_file}" {resolved.spec.secondary_lib_corner}')
+            lines.append("*")
+            return lines
+
     mode = model_config.mode
 
     if mode == "include":
@@ -837,15 +953,24 @@ def generate(comps: list, wires: list, wlbls: list = None,
             # Bulk: use per-component bulk_net attribute if set, else 0
             blk = getattr(comp, 'bulk_net', "0") or "0"
 
+            pdk_key = getattr(model_config, "pdk_name", "") if model_config else ""
+            resolved_pdk = resolve_pdk(pdk_key) if pdk_key else None
+
             # Model name: from component attribute, else from ModelConfig, else generic
             if model_config:
                 mdl = getattr(comp, 'model_name', None) or model_config.model_name(t)
             else:
                 mdl = getattr(comp, 'model_name', None) or _DEFAULT_MODEL_NAMES[t]
 
-            # W/L: from component attributes if set, else ModelConfig defaults, else hardcoded
+            # W/L: from component attributes if set, else parsed from value, else ModelConfig defaults, else hardcoded
             w = getattr(comp, 'mos_w', None)
             l = getattr(comp, 'mos_l', None)
+            if not w or not l:
+                val = getattr(comp, 'value', '') or ''
+                m_wl = re.search(r'W/L\s*=\s*([^/\s]+)/([^\s]+)', val, re.I)
+                if m_wl:
+                    w = w or m_wl.group(1)
+                    l = l or m_wl.group(2)
             if not w or not l:
                 if model_config:
                     dw, dl = model_config.default_wl(t)
@@ -854,18 +979,45 @@ def generate(comps: list, wires: list, wlbls: list = None,
                 else:
                     w = w or ("2u" if t=="NMOS" else "4u")
                     l = l or "180n"
-            lines.append(f"{comp.label:<10} {d:<8} {g:<8} {s:<8} {blk:<6} "
-                         f"{mdl}  W={_si(w)} L={_si(l)}")
+
+            # In NGspice, PDK subcircuit models require the instance label to start with X
+            is_sub = (resolved_pdk is not None) or (mdl not in ("NMOS_GENERIC", "PMOS_GENERIC"))
+            inst = comp.label
+            if is_sub and not inst.upper().startswith("X"):
+                inst = f"X{comp.label}"
+
+            w_val = format_pdk_dim(w, pdk_key) if pdk_key else _si(w)
+            l_val = format_pdk_dim(l, pdk_key) if pdk_key else _si(l)
+
+            fingers = getattr(comp, 'fingers', 1)
+            f_suffix = f" m={fingers}" if (isinstance(fingers, int) and fingers > 1) else ""
+
+            lines.append(f"{inst:<10} {d:<8} {g:<8} {s:<8} {blk:<6} "
+                         f"{mdl}  W={w_val} L={l_val}{f_suffix}")
 
         elif t in _BJT_TYPES:
             c   = pin_net(comp, "collector")
             b   = pin_net(comp, "base")
             e   = pin_net(comp, "emitter")
+            pdk_key = getattr(model_config, "pdk_name", "") if model_config else ""
+            resolved_pdk = resolve_pdk(pdk_key) if pdk_key else None
+
             if model_config:
                 mdl = getattr(comp, 'model_name', None) or model_config.model_name(t)
             else:
                 mdl = getattr(comp, 'model_name', None) or _DEFAULT_MODEL_NAMES[t]
-            lines.append(f"{comp.label:<10} {c:<8} {b:<8} {e:<8} {mdl}")
+
+            is_sub = (resolved_pdk is not None) or (mdl not in ("NPN_GENERIC", "PNP_GENERIC"))
+            inst = comp.label
+            if is_sub and not inst.upper().startswith("X"):
+                inst = f"X{comp.label}"
+
+            n_terms = resolved_pdk.spec.bjt_terminals if resolved_pdk else 3
+            if n_terms == 4 or (mdl and "npn13g2" in mdl.lower()):
+                blk = getattr(comp, 'bulk_net', "0") or "0"
+                lines.append(f"{inst:<10} {c:<8} {b:<8} {e:<8} {blk:<6} {mdl}")
+            else:
+                lines.append(f"{inst:<10} {c:<8} {b:<8} {e:<8} {mdl}")
 
         else:
             result.warnings.append(f"No SPICE emitter for type '{t}' — skipped")

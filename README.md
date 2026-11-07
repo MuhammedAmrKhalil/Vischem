@@ -36,6 +36,24 @@ NGspice is a separate system install and is not required to draw schematics or e
 
 ---
 
+## Mouse Controls
+
+Vischem features full mouse integration designed for an intuitive visual workflow:
+
+| Mouse Action | Description |
+|---|---|
+| **Hover / Movement** | The canvas grid cursor smoothly follows the mouse pointer in real time, updating the coordinate display `(X, Y)` and hovering component information in the topbar |
+| **Left Click** | Select a component or place the grid cursor at a specific cell |
+| **Left Drag** | Drag and drop any component or wire label across the canvas to reposition it (with automatic cell collision avoidance) |
+| **Shift + Left Drag** | Move a component while automatically stretching connected wire endpoints attached to its pins |
+| **Double Click** | Open the type-aware Properties dialog for the clicked component (equivalent to pressing `E`) |
+| **Right Click** | Rotate the clicked component 90° clockwise (or cancel active wire routing in Wire mode) |
+| **Interactive Wiring** | In Wire mode (`W`), the routing preview dynamically follows the mouse; left-clicking places vertices |
+| **Scroll Wheel** | Scroll canvas vertically (`Shift + Scroll` for horizontal) |
+| **Ctrl + Scroll Wheel** | Zoom in / out smoothly |
+
+---
+
 ## Hotkeys
 
 | Key | Action |
@@ -76,34 +94,81 @@ clear                     Clear canvas
 
 ---
 
-## Model Manager  `Models`
+## Model Manager  `Models` & PDK Support
 
 Configure device models project-wide:
 
 - **Inline** — built-in SPICE Level 1 parameters, no file needed
 - **External file** — point to a `.sp` or `.spi` file (`.include`)
 - **Library file** — point to a `.lib` file with a corner (`.lib "file" tt`)
+- **PDK Presets** — full out-of-the-box support for open-source PDKs:
+  - **SkyWater 130nm** (`sky130A` / `sky130B`)
+  - **GlobalFoundries 180nm MCU** (`gf180mcuD` / `gf180mcuC`)
+  - **IHP SG13G2 130nm BiCMOS** (`ihp-sg13g2`)
 
-The tool parses the file and populates model name dropdowns automatically.
-When you press `E` on a MOSFET or BJT, pick the model from the dropdown —
-no manual typing of model names.
+### Using Open-Source PDKs
+
+1. **Auto-Detection**: Vischem automatically locates installed PDKs via `$PDK_ROOT`, `~/pdk`, and standard paths.
+2. **Preset Selection**: Open `Models` in the toolbar, select **PDK Preset**, pick your PDK, and choose a corner (`typical`/`tt`, `ss`, `ff`, `sf`, `fs`).
+3. **Command Bar**: You can also switch PDKs directly using the command bar:
+   ```
+   :pdk sky130 [corner]
+   :pdk gf180 [corner]
+   :pdk ihp [corner]
+   :pdk none
+   ```
+4. **Smart SPICE & Device Management**:
+   - Automatically handles `.subckt` vs `.model` device declarations and applies `X` subcircuit prefixes (`XM1`, `XQ1`).
+   - Adapts dimension scaling to PDK rules (e.g., SkyWater 130 bare micron formatting for `.option scale=1.0u`).
+   - Accommodates PDK-specific terminal definitions (e.g. 4-pin RF/BiCMOS BJTs like `npn13G2` with substrate tap).
+   - Auto-populates MOSFET and BJT model name dropdowns with genuine PDK device models (e.g., `sky130_fd_pr__nfet_01v8`, `nfet_03v3`, `sg13_lv_nmos`).
+   - Real-time symbol synchronization: updating Width, Length, or parallel fingers ($M$) in the Properties dialog immediately updates the displayed $W/L$ text on the canvas and emits `m=<fingers>` into the SPICE netlist.
 
 ---
 
-## Netlist export
+## Example PDK Circuits
 
-The exported `.cir` file is ready for NGspice batch mode:
+Pre-configured schematic examples are available in `examples/`:
+- **`examples/GF180/`**: GF180 MCU circuit with `nfet_03v3` (`180.json`, `180.cir`, `180.raw`)
+- **`examples/sky130/`**: SkyWater 130 CMOS inverter with `sky130_fd_pr__nfet_01v8` & `sky130_fd_pr__pfet_01v8` (`sky130_inv.json`, `sky130_inv.cir`, `sky130_inv.raw`)
+- **`examples/ihp/`**: IHP SG13G2 Common-Source amplifier with `sg13_lv_nmos` (`ihp_cs.json`, `ihp_cs.cir`, `ihp_cs.raw`)
+
+---
+
+## Netlist Export & Simulation
+
+- **Exporting**: Use `:netlist` in the command dialog or click the `{ } Netlist` toolbar button to inspect the generated SPICE deck.
+- **Simulating**: Click the **▶ Run** toolbar button (or `:sim`) to execute the simulation in NGspice. Results and progress stream live to the simulation log panel, and a `.raw` output file is generated in the circuit directory.
+
+To run NGspice manually from the command line:
 
 ```bash
 ngspice -b my_circuit.cir
 ```
----
-## Simulate with the click of a button !
 
-You can now run the simulation directly from Vischem, the simulator should produce `.raw` file.
+---
+
+## PDK Licenses & Acknowledgments
+
+Vischem interfaces with open-source Process Design Kits (PDKs). The PDK models, device definitions, and rules are the property of their respective creators and are distributed under the **Apache License 2.0**:
+
+- **SkyWater 130nm PDK (`sky130`)**:
+  - **License**: [Apache License 2.0](https://github.com/google/skywater-pdk/blob/main/LICENSE)
+  - **Copyright**: © 2020 SkyWater Technology International, Inc. and Google LLC
+  - **Repository**: [google/skywater-pdk](https://github.com/google/skywater-pdk)
+
+- **GlobalFoundries 180nm MCU PDK (`gf180mcu`)**:
+  - **License**: [Apache License 2.0](https://github.com/google/gf180mcu-pdk/blob/main/LICENSE)
+  - **Copyright**: © 2022 GlobalFoundries Inc. and Google LLC
+  - **Repository**: [google/gf180mcu-pdk](https://github.com/google/gf180mcu-pdk)
+
+- **IHP SG13G2 130nm BiCMOS PDK (`ihp-sg13g2`)**:
+  - **License**: [Apache License 2.0](https://github.com/IHP-GmbH/IHP-Open-PDK/blob/main/LICENSE)
+  - **Copyright**: © 2023–2024 IHP GmbH - Innovations for High Performance Microelectronics
+  - **Repository**: [IHP-GmbH/IHP-Open-PDK](https://github.com/IHP-GmbH/IHP-Open-PDK)
 
 ---
 
 ## License
 
-See `LICENSE`.
+Vischem is licensed under the MIT License. See [`LICENSE`](file:///home/ziad/Vischem/LICENSE) for details.
