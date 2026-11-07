@@ -3306,16 +3306,7 @@ class Editor:
 
         lbl_pdk_wl = tk.Label(pdk_frame, text="", bg=PANEL_BG, fg="#4ade80",
                               font=("Courier", 8), anchor="w", padx=8, pady=2)
-        lbl_pdk_wl.pack(fill=tk.X, pady=(0, 2))
-
-        var_apply_canvas = tk.BooleanVar(value=True)
-        cb_apply = tk.Checkbutton(pdk_frame,
-            text="Apply PDK minimum W/L to schematic transistors",
-            variable=var_apply_canvas,
-            bg=PANEL_BG, fg="#cbd5e1", selectcolor=PANEL_ALT,
-            activebackground=PANEL_BG, activeforeground="#38bdf8",
-            font=("Helvetica", 8), anchor="w", padx=8)
-        cb_apply.pack(fill=tk.X, pady=(0, 4))
+        lbl_pdk_wl.pack(fill=tk.X, pady=(0, 4))
 
         # ── Mode selector ──
         sv_mode = tk.StringVar(value=mc.mode)
@@ -3545,7 +3536,6 @@ class Editor:
                 "file_path":        sv_file.get().strip(),
                 "corner":           sv_corner.get(),
                 "pdk_name":         "" if pdk_val == "none" else pdk_val,
-                "apply_to_canvas":  var_apply_canvas.get(),
             }
             dlg.destroy()
 
@@ -3584,25 +3574,24 @@ class Editor:
                 resolved = resolve_pdk(pdk_name)
                 if resolved:
                     self._model_names_cache = dict(resolved.models)
-                    if r.get("apply_to_canvas", True):
-                        nw, nl = resolved.min_wl.get("NMOS", ("?", "?"))
-                        pw, pl = resolved.min_wl.get("PMOS", ("?", "?"))
-                        upd = 0
-                        for c in self.comps:
-                            if c.type == "NMOS":
-                                c.mos_w, c.mos_l = nw, nl
-                                c.model_name = self.model_config.model_name("NMOS")
-                                c.update_mos_value()
-                                upd += 1
-                            elif c.type == "PMOS":
-                                c.mos_w, c.mos_l = pw, pl
-                                c.model_name = self.model_config.model_name("PMOS")
-                                c.update_mos_value()
-                                upd += 1
-                        if upd:
-                            self._render()
-                            if self._netlist_visible:
-                                self._rebuild_netlist()
+                    nw, nl = resolved.min_wl.get("NMOS", ("?", "?"))
+                    pw, pl = resolved.min_wl.get("PMOS", ("?", "?"))
+                    upd = 0
+                    for c in self.comps:
+                        if c.type == "NMOS":
+                            c.mos_w, c.mos_l = nw, nl
+                            c.model_name = self.model_config.model_name("NMOS")
+                            c.update_mos_value()
+                            upd += 1
+                        elif c.type == "PMOS":
+                            c.mos_w, c.mos_l = pw, pl
+                            c.model_name = self.model_config.model_name("PMOS")
+                            c.update_mos_value()
+                            upd += 1
+                    if upd:
+                        self._render()
+                        if self._netlist_visible:
+                            self._rebuild_netlist()
             elif r["file_path"]:
                 self._model_names_cache = parse_model_file(r["file_path"])
             elif r["mode"] == "inline":
