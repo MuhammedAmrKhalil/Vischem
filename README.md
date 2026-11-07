@@ -59,6 +59,11 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | Key | Action |
 |---|---|
 | `↑ ↓ ← →` | Move cursor |
+| `Ctrl + Z` / `u` | Undo last schematic change |
+| `Ctrl + Y` / `Ctrl + Shift + Z` / `U` | Redo last undone change |
+| `Ctrl + C` | Copy component or net label at cursor |
+| `Ctrl + V` | Paste copied component or net label |
+| `Ctrl + X` | Cut component or net label at cursor |
 | `R` | Place Resistor |
 | `C` | Place Capacitor |
 | `L` | Place Inductor |
@@ -77,19 +82,38 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 
 ---
 
+## History & Clipboard Operations
+
+Vischem provides full undo/redo and clipboard integration via toolbar buttons, hotkeys, and command bar:
+
+- **Undo & Redo**:
+  - Up to 60 levels of deep history.
+  - Automatically records all schematic modifications: placing components/devices, drawing wires, mouse drag-and-drop moves (with or without Shift wire stretching), rotating, flipping, deleting, net labelling, clearing, and property edits in dialogs.
+  - Available via **Undo** / **Redo** toolbar buttons, `Ctrl+Z` / `Ctrl+Y` (`Ctrl+Shift+Z`, `u`, `U`), or `:undo` / `:redo`.
+- **Copy, Cut & Paste**:
+  - Copy or cut any component or net label at the cursor with `Ctrl+C` / `Ctrl+X` or the topbar buttons.
+  - Paste with `Ctrl+V` or the **Paste** button.
+  - Transistor sizing ($W/L$), parallel fingers ($M$), bulk connections, and PDK model references are faithfully duplicated while generating fresh collision-free sequential instance labels (e.g. `M1` → `M2`, `R1` → `R2`).
+  - Net labels can be quickly duplicated across wire junctions.
+
+---
+
 ## Command dialog
 
 Press shift + `:` then type one of these commands:
 
 ```
-nmos  pmos  npn  pnp     Place transistor
-in  out  inout  vdd  vss Place port / power symbol
+undo / redo               Undo / Redo last schematic change
+copy / paste / cut        Copy / Paste / Cut component or net label
+nmos  pmos  npn  pnp      Place transistor
+in  out  inout  vdd  vss  Place port / power symbol
+pdk <sky130|gf180|ihp>   Switch active PDK preset
 sim                       Simulation setup
 save                      Save schematic (.json / .svg / .png …)
 load                      Load schematic (.json)
 netlist                   Export SPICE netlist (.cir)
 doc                       Export black-on-white documentation image
-clear                     Clear canvas
+clear                     Clear canvas (undoable)
 ```
 
 ---

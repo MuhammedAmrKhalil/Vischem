@@ -13,9 +13,16 @@ HOTKEYS
   Space        Rotate 90°
   F            Flip  (horizontal mirror)
   E            Edit label → value
-  shift + ":"            Open command dialog
+  Ctrl+Z / u   Undo
+  Ctrl+Y / U   Redo
+  Ctrl+C       Copy component/label at cursor
+  Ctrl+V       Paste copied component/label
+  Ctrl+X       Cut component/label at cursor
+  shift + ":"  Open command dialog
 
 COMMAND DIALOG (:)
+  undo / redo          Undo / Redo last schematic change
+  copy / paste / cut   Copy / Paste / Cut component or net label
   nmos pmos npn pnp    Place transistor
   save                 File-dialog → .json / .csv / .png / .svg
   load                 File-dialog → .json / .csv
@@ -28,7 +35,7 @@ COMMAND DIALOG (:)
 
 import tkinter as tk
 from tkinter import filedialog
-import math, csv, os, sys, json, tempfile
+import math, csv, os, sys, json, tempfile, copy
 
 try:
     from PIL import ImageGrab, Image, ImageOps
@@ -632,6 +639,12 @@ class Editor:
         self._drag_press_x  = 0
         self._drag_press_y  = 0
         self._drag_moved    = False
+        self._drag_undo_snapshot: dict | None = None
+
+        # History (Undo / Redo) and Clipboard
+        self._undo_stack : list[dict] = []
+        self._redo_stack : list[dict] = []
+        self._clipboard  : dict | None = None
 
         self.GS = GS_DEFAULT
         self._update_canvas_size()
@@ -699,6 +712,29 @@ class Editor:
             bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Courier", 10, "bold"), relief="flat",
             width=2, cursor="hand2").pack(side=tk.LEFT)
+
+        # Edit operations: Undo / Redo / Copy / Paste
+        ef = tk.Frame(top, bg=PANEL_BG); ef.pack(side=tk.LEFT, padx=(8, 4))
+        self.btn_undo = tk.Button(ef, text="Undo", command=self._undo,
+            bg=BTN_BG, fg="#4b5563", activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
+            font=("Courier", 8, "bold"), relief="flat", state=tk.DISABLED,
+            cursor="hand2", padx=6)
+        self.btn_undo.pack(side=tk.LEFT, padx=1)
+        self.btn_redo = tk.Button(ef, text="Redo", command=self._redo,
+            bg=BTN_BG, fg="#4b5563", activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
+            font=("Courier", 8, "bold"), relief="flat", state=tk.DISABLED,
+            cursor="hand2", padx=6)
+        self.btn_redo.pack(side=tk.LEFT, padx=1)
+        self.btn_copy = tk.Button(ef, text="Copy", command=self._copy,
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
+            font=("Courier", 8, "bold"), relief="flat",
+            cursor="hand2", padx=6)
+        self.btn_copy.pack(side=tk.LEFT, padx=(4, 1))
+        self.btn_paste = tk.Button(ef, text="Paste", command=self._paste,
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
+            font=("Courier", 8, "bold"), relief="flat",
+            cursor="hand2", padx=6)
+        self.btn_paste.pack(side=tk.LEFT, padx=1)
 
         tk.Button(top, text="Clear", command=self._clear,
             bg=BTN_BG, fg="#f87171", activebackground="#3d1e28",
@@ -989,6 +1025,20 @@ class Editor:
         cv.bind("<Shift-MouseWheel>",   self._on_wheel_x)
         cv.bind("<Control-MouseWheel>", self._on_ctrl_wheel)
 
+        for w in (cv, self.root):
+            w.bind("<Control-z>",       lambda e: (self._undo(), "break")[1])
+            w.bind("<Control-Z>",       lambda e: (self._redo(), "break")[1])
+            w.bind("<Control-y>",       lambda e: (self._redo(), "break")[1])
+            w.bind("<Control-Y>",       lambda e: (self._redo(), "break")[1])
+            w.bind("<Control-Shift-Z>", lambda e: (self._redo(), "break")[1])
+            w.bind("<Control-Shift-z>", lambda e: (self._redo(), "break")[1])
+            w.bind("<Control-c>",       lambda e: (self._copy(), "break")[1])
+            w.bind("<Control-C>",       lambda e: (self._copy(), "break")[1])
+            w.bind("<Control-v>",       lambda e: (self._paste(), "break")[1])
+            w.bind("<Control-V>",       lambda e: (self._paste(), "break")[1])
+            w.bind("<Control-x>",       lambda e: (self._cut(), "break")[1])
+            w.bind("<Control-X>",       lambda e: (self._cut(), "break")[1])
+
     # ── Mouse Interaction & Drag-and-Drop Helpers ──────────────────────────────
     def _get_comp_pins(self, comp) -> list[tuple[int, int]]:
         """Return world grid positions (rx, ry) of all pins of comp."""
@@ -1058,6 +1108,7 @@ class Editor:
             self._drag_press_x = ev.x
             self._drag_press_y = ev.y
             self._drag_moved = False
+            self._drag_undo_snapshot = self._snapshot()
             self._status(f"Selected {c.label} ({c.type}) — drag to move, double-click for properties", "#38bdf8")
         elif wl:
             self.cursor = [wl.gx, wl.gy]
@@ -1068,12 +1119,14 @@ class Editor:
             self._drag_press_x = ev.x
             self._drag_press_y = ev.y
             self._drag_moved = False
+            self._drag_undo_snapshot = self._snapshot()
             self._status(f"Selected label '{wl.text}' — drag to move", "#38bdf8")
         else:
             self.cursor = [cx, cy]
             self._drag_target = None
             self._drag_type = None
             self._drag_moved = False
+            self._drag_undo_snapshot = None
             self._active_status = None
 
         self._render()
@@ -1157,6 +1210,13 @@ class Editor:
             target = self._drag_target
             name = getattr(target, "label", getattr(target, "text", "Item"))
             if (target.gx, target.gy) != (self._drag_start_gx, self._drag_start_gy):
+                if getattr(self, "_drag_undo_snapshot", None):
+                    self._undo_stack.append(self._drag_undo_snapshot)
+                    if len(self._undo_stack) > 60:
+                        self._undo_stack.pop(0)
+                    self._redo_stack.clear()
+                    self._update_undo_redo_ui()
+                    self._drag_undo_snapshot = None
                 self._status(f"✓ Moved {name} to ({target.gx}, {target.gy})", "#4ade80")
             else:
                 self._status(f"· {name} at ({target.gx}, {target.gy})", "#94a3b8")
@@ -1164,6 +1224,7 @@ class Editor:
         self._drag_target = None
         self._drag_type   = None
         self._drag_moved  = False
+        self._drag_undo_snapshot = None
 
     def _on_double_click(self, ev):
         """Double clicking on an instance opens its Properties dialog."""
@@ -1228,6 +1289,28 @@ class Editor:
     def _on_key(self, ev):
         k  = ev.keysym.lower()
         ku = (ev.char or "").upper()
+        ctrl = bool(getattr(ev, "state", 0) & 4)
+
+        # Global clipboard & history shortcuts with Ctrl modifier
+        if ctrl:
+            if k == "z":
+                if getattr(ev, "state", 0) & 1:  # Shift + Ctrl + Z
+                    self._redo()
+                else:
+                    self._undo()
+                return "break"
+            if k == "y":
+                self._redo()
+                return "break"
+            if k == "c":
+                self._copy()
+                return "break"
+            if k == "v":
+                self._paste()
+                return "break"
+            if k == "x":
+                self._cut()
+                return "break"
 
         dirs = {"up":(0,-1),"down":(0,1),"left":(-1,0),"right":(1,0)}
         if k in dirs and self.mode in ("NORMAL","WIRE","MOUSE"):
@@ -1241,6 +1324,8 @@ class Editor:
         if ev.char in ("-","_"): self._zoom(-8); return
 
         if self.mode in ("NORMAL", "MOUSE"):
+            if ev.char == "u": self._undo(); return
+            if ev.char == "U": self._redo(); return
             if ku in ("R","C","L","V","I","G"): self._place(ku); return
             if ku == "W":  self._start_wire(); return
             if ku == "M":  self._toggle_mouse(); return
@@ -1257,6 +1342,175 @@ class Editor:
             if k == "escape":
                 self.mode="NORMAL"; self.ws=None; self._render()
 
+    # ── History & Clipboard Operations ─────────────────────────────────────────
+    def _snapshot(self) -> dict:
+        """Create a deep snapshot of current schematic state."""
+        return {
+            "components": [c.to_dict() for c in self.comps],
+            "wires":      [w.to_dict() for w in self.wires],
+            "wirelabels": [l.to_dict() for l in self.wlbls],
+            "uid_comp":   Component._uid,
+            "cnt_comp":   dict(Component._cnt),
+            "uid_wire":   Wire._uid,
+        }
+
+    def _restore_snapshot(self, snap: dict):
+        """Restore schematic state from a snapshot."""
+        self.comps = [Component.from_dict(d) for d in snap.get("components", [])]
+        self.wires = [Wire.from_dict(d) for d in snap.get("wires", [])]
+        self.wlbls = [WireLabel.from_dict(d) for d in snap.get("wirelabels", [])]
+        Component._uid = snap.get("uid_comp", 0)
+        Component._cnt = dict(snap.get("cnt_comp", {}))
+        Wire._uid      = snap.get("uid_wire", 0)
+
+    def _push_undo(self):
+        """Push current state onto undo stack and clear redo stack."""
+        self._undo_stack.append(self._snapshot())
+        if len(self._undo_stack) > 60:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+        self._update_undo_redo_ui()
+
+    def _update_undo_redo_ui(self):
+        """Update toolbar button states according to undo/redo/clipboard availability."""
+        try:
+            if hasattr(self, "btn_undo"):
+                if self._undo_stack:
+                    self.btn_undo.config(state=tk.NORMAL, fg=BTN_FG)
+                else:
+                    self.btn_undo.config(state=tk.DISABLED, fg="#4b5563")
+            if hasattr(self, "btn_redo"):
+                if self._redo_stack:
+                    self.btn_redo.config(state=tk.NORMAL, fg=BTN_FG)
+                else:
+                    self.btn_redo.config(state=tk.DISABLED, fg="#4b5563")
+            if hasattr(self, "btn_paste"):
+                if self._clipboard:
+                    self.btn_paste.config(state=tk.NORMAL, fg=BTN_FG)
+                else:
+                    self.btn_paste.config(state=tk.DISABLED, fg="#4b5563")
+        except Exception:
+            pass
+
+    def _undo(self):
+        """Undo last schematic modification."""
+        if not self._undo_stack:
+            self._status("Already at oldest change", "#94a3b8")
+            return
+        self._redo_stack.append(self._snapshot())
+        prev = self._undo_stack.pop()
+        self._restore_snapshot(prev)
+        self._update_undo_redo_ui()
+        self._status("✓ Undo", "#38bdf8")
+        self.cv.focus_set()
+        self._render()
+
+    def _redo(self):
+        """Redo last undone schematic modification."""
+        if not self._redo_stack:
+            self._status("Already at newest change", "#94a3b8")
+            return
+        self._undo_stack.append(self._snapshot())
+        nxt = self._redo_stack.pop()
+        self._restore_snapshot(nxt)
+        self._update_undo_redo_ui()
+        self._status("✓ Redo", "#38bdf8")
+        self.cv.focus_set()
+        self._render()
+
+    def _copy(self):
+        """Copy component or net label at current cursor to clipboard."""
+        c = self._at_cursor()
+        if c:
+            self._clipboard = {"kind": "comp", "data": c.to_dict()}
+            self._update_undo_redo_ui()
+            self._status(f"✓ Copied {c.label} ({c.type})", "#38bdf8")
+            self.cv.focus_set()
+            return
+
+        wl = next((l for l in self.wlbls if l.gx == self.cursor[0] and l.gy == self.cursor[1]), None)
+        if wl:
+            self._clipboard = {"kind": "label", "data": wl.to_dict()}
+            self._update_undo_redo_ui()
+            self._status(f"✓ Copied net label '{wl.text}'", "#38bdf8")
+            self.cv.focus_set()
+            return
+
+        self._status("[!] Nothing to copy at cursor", "#f87171")
+        self.cv.focus_set()
+
+    def _cut(self):
+        """Cut component or net label at current cursor to clipboard."""
+        c = self._at_cursor()
+        if c:
+            self._clipboard = {"kind": "comp", "data": c.to_dict()}
+            self._push_undo()
+            self.comps = [x for x in self.comps if x is not c]
+            self._update_undo_redo_ui()
+            self._status(f"✓ Cut {c.label} ({c.type})", "#38bdf8")
+            self.cv.focus_set()
+            self._render()
+            return
+
+        wl = next((l for l in self.wlbls if l.gx == self.cursor[0] and l.gy == self.cursor[1]), None)
+        if wl:
+            self._clipboard = {"kind": "label", "data": wl.to_dict()}
+            self._push_undo()
+            self.wlbls = [x for x in self.wlbls if x is not wl]
+            self._update_undo_redo_ui()
+            self._status(f"✓ Cut net label '{wl.text}'", "#38bdf8")
+            self.cv.focus_set()
+            self._render()
+            return
+
+        self._status("[!] Nothing to cut at cursor", "#f87171")
+        self.cv.focus_set()
+
+    def _paste(self):
+        """Paste copied item from clipboard at current cursor position."""
+        if not self._clipboard:
+            self._status("[!] Clipboard empty — copy an item first (Ctrl+C)", "#f87171")
+            self.cv.focus_set()
+            return
+
+        kind = self._clipboard.get("kind")
+        gx, gy = self.cursor
+
+        if kind == "comp":
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171")
+                self.cv.focus_set()
+                return
+
+            self._push_undo()
+            d = copy.deepcopy(self._clipboard["data"])
+            d["gx"] = gx
+            d["gy"] = gy
+            d["label"] = None  # Force generation of a fresh sequential label
+
+            c = Component.from_dict(d)
+            # Ensure label uniqueness against any manual label assignments
+            cnt_key = COUNTER_GROUP.get(c.type, c.type)
+            pfx = PREFIX.get(c.type, c.type[0])
+            existing_labels = {comp.label for comp in self.comps}
+            while c.label in existing_labels:
+                Component._cnt[cnt_key] = Component._cnt.get(cnt_key, 0) + 1
+                c.label = f"{pfx}{Component._cnt[cnt_key]}"
+
+            self.comps.append(c)
+            self._status(f"✓ Pasted {c.label} ({c.type}) at ({gx}, {gy})", "#4ade80")
+            self.cv.focus_set()
+            self._render()
+
+        elif kind == "label":
+            self._push_undo()
+            d = copy.deepcopy(self._clipboard["data"])
+            self.wlbls = [l for l in self.wlbls if not (l.gx == gx and l.gy == gy)]
+            self.wlbls.append(WireLabel(gx, gy, d["text"]))
+            self._status(f"✓ Pasted net label '{d['text']}' at ({gx}, {gy})", "#4ade80")
+            self.cv.focus_set()
+            self._render()
+
     # ── Actions ────────────────────────────────────────────────────────────────
     def _at_cursor(self):
         gx, gy = self.cursor
@@ -1269,12 +1523,14 @@ class Editor:
     def _place(self, typ):
         if self._at_cursor():
             self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+        self._push_undo()
         self.comps.append(Component(typ, *self.cursor))
         self._render()
 
     def _place_device(self, typ):
         if self._at_cursor():
             self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+        self._push_undo()
         c = Component(typ, *self.cursor)
         if typ in ("NMOS", "PMOS"):
             dw, dl = self.model_config.default_wl(typ)
@@ -1292,7 +1548,9 @@ class Editor:
 
     def _rotate(self):
         c = self._at_cursor()
-        if c: c.rot = (c.rot + 90) % 360
+        if c:
+            self._push_undo()
+            c.rot = (c.rot + 90) % 360
         self._render()
 
     def _flip(self):
@@ -1300,6 +1558,7 @@ class Editor:
         c = self._at_cursor()
         if not c:
             self._status("[!] No component at cursor", "#f87171"); return
+        self._push_undo()
         c.flip = not c.flip
         self._status(
             f"⟺  {c.label} flipped {'ON' if c.flip else 'OFF'}", "#f472b6")
@@ -1317,11 +1576,15 @@ class Editor:
             initial=current, color=WIRE_LBL_COLOR)
         if new_text is None:   # cancelled
             self._render(); return
+        stripped = new_text.strip()
+        if (existing and existing.text == stripped) or (not existing and not stripped):
+            return
+        self._push_undo()
         # Remove any existing label at this point
         self.wlbls = [l for l in self.wlbls if not (l.gx==gx and l.gy==gy)]
-        if new_text.strip():
-            self.wlbls.append(WireLabel(gx, gy, new_text.strip()))
-            self._status(f"✓ Net labelled '{new_text.strip()}'", "#38bdf8")
+        if stripped:
+            self.wlbls.append(WireLabel(gx, gy, stripped))
+            self._status(f"✓ Net labelled '{stripped}'", "#38bdf8")
         else:
             self._status("✓ Wire label removed", "#38bdf8")
         self._render()
@@ -1490,10 +1753,17 @@ class Editor:
 
     def _delete(self):
         gx, gy = self.cursor
+        has_comp = any(c.gx == gx and c.gy == gy for c in self.comps)
+        has_wire = any((w.x1 == gx and w.y1 == gy) or (w.x2 == gx and w.y2 == gy) for w in self.wires)
+        has_lbl  = any(l.gx == gx and l.gy == gy for l in self.wlbls)
+        if not (has_comp or has_wire or has_lbl):
+            return
+        self._push_undo()
         self.comps = [c for c in self.comps if not (c.gx==gx and c.gy==gy)]
         self.wires = [w for w in self.wires
                       if not((w.x1==gx and w.y1==gy) or (w.x2==gx and w.y2==gy))]
         self.wlbls = [l for l in self.wlbls if not (l.gx==gx and l.gy==gy)]
+        self._status("Deleted item at cursor", "#94a3b8")
         self._render()
 
     def _start_wire(self):
@@ -1502,6 +1772,7 @@ class Editor:
     def _commit_wire(self):
         cx, cy = self.cursor
         if self.ws and (self.ws[0]!=cx or self.ws[1]!=cy):
+            self._push_undo()
             self.wires.append(Wire(self.ws[0],self.ws[1],cx,cy))
             self.ws=[cx,cy]
         else:
@@ -1785,6 +2056,7 @@ class Editor:
         self.cv.focus_set()
 
         if result[0]:
+            self._push_undo()
             r = result[0]
             if r["label"]:    c.label       = r["label"]
             c.vsrc_type    = r["vsrc_type"]
@@ -1862,6 +2134,7 @@ class Editor:
         self.cv.focus_set()
 
         if result[0]:
+            self._push_undo()
             lbl, val = result[0]
             if lbl: c.label = lbl
             if val: c.value = val
@@ -2042,6 +2315,7 @@ class Editor:
         self.cv.focus_set()
 
         if result[0]:
+            self._push_undo()
             r = result[0]
             if r["label"]:      c.label      = r["label"]
             c.model_name = r["model_name"]
@@ -2154,6 +2428,7 @@ class Editor:
         self.cv.focus_set()
 
         if result[0]:
+            self._push_undo()
             lbl, mdl = result[0]
             if lbl: c.label = lbl
             c.model_name = mdl
@@ -2481,7 +2756,7 @@ class Editor:
 
     def _open_cmd(self):
         cmd = self._ask("Command",
-            "nmos  pmos  npn  pnp  ·  in  out  inout  vdd  vss  ·  "
+            "undo  redo  copy  paste  cut  ·  nmos  pmos  npn  pnp  ·  in  out  inout  vdd  vss  ·  "
             "pdk  sim  ·  save  load  netlist  savesvg  savepng  doc clear",
             color="#38bdf8")
         if cmd and cmd.strip():
@@ -2496,7 +2771,17 @@ class Editor:
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else None
 
-        if cmd in ("nmos","pmos","npn","pnp"):
+        if cmd == "undo":
+            self._undo()
+        elif cmd == "redo":
+            self._redo()
+        elif cmd == "copy":
+            self._copy()
+        elif cmd == "paste":
+            self._paste()
+        elif cmd == "cut":
+            self._cut()
+        elif cmd in ("nmos","pmos","npn","pnp"):
             self._place_device(cmd.upper())
         elif cmd in ("pin","in","out","inout","vdd","vss"):
             # map shorthand → internal type
@@ -2560,12 +2845,11 @@ class Editor:
             self._clear()
         elif cmd == "help":
             self._status(
-                "HOTKEYS  arrows=move · R/C/L/V/I/G=place · W=wire(Enter/Esc) · "
-                "Spc=rotate · F=flip · T=net-label · E=edit · M=mouse-mode · "
-                "+/-=zoom · Del=delete  │  "
-                "COMMANDS (:)  nmos pmos npn pnp · in out inout vdd vss · "
-                "sim · save · load · netlist · savepng · savesvg · doc (B&W) · "
-                "zoom <pct> · clear · help",
+                "HOTKEYS  Ctrl+Z/u=undo · Ctrl+Y/U=redo · Ctrl+C/V/X=copy/paste/cut · "
+                "arrows=move · R/C/L/V/I/G=place · W=wire · Spc=rotate · F=flip · T=net-label · "
+                "E=edit · M=mouse · +/-=zoom · Del=delete  │  "
+                "COMMANDS (:)  undo redo copy paste cut · nmos pmos npn pnp · in out inout vdd vss · "
+                "sim · save · load · netlist · savepng · savesvg · doc · zoom <pct> · clear · help",
                 "#a78bfa")
         else:
             self._status(f"[!] Unknown: '{cmd}' — try :help", "#f87171")
@@ -2634,6 +2918,9 @@ class Editor:
             self._current_file = path
             stem = os.path.splitext(os.path.basename(path))[0]
             self.root.title(f"Vischem  v0.1  —  {stem}")
+            self._undo_stack.clear()
+            self._redo_stack.clear()
+            self._update_undo_redo_ui()
             self._render()
         except Exception as e:
             self._status(f"[!] Load failed: {e}", "#f87171")
@@ -3085,6 +3372,8 @@ class Editor:
         self._dialog_save_netlist()
 
     def _clear(self):
+        if self.comps or self.wires or self.wlbls:
+            self._push_undo()
         self.comps=[]; self.wires=[]; self.wlbls=[]
         Component._uid=0; Component._cnt={}
         Wire._uid=0
@@ -3239,8 +3528,8 @@ class Editor:
             self.lbl_status.config(
                 text=f"{len(self.comps)} comp · {len(self.wires)} wire · "
                      f"{len(self.wlbls)} net label  │  "
-                     "mouse=drag/move · arrows · R/C/L/V/I/G · W=wire · T=net label · "
-                     f"Spc=rot · F=flip · E=edit · :=cmd · +/-=zoom{pil_note}",
+                     "mouse=drag/move · Ctrl+Z/Y=undo/redo · Ctrl+C/V=copy/paste · "
+                     "arrows · R/C/L/V/I/G · W=wire · T=net-label · Spc=rot · F=flip · E=edit · :=cmd{pil_note}",
                 fg="#94a3b8")
 
 
