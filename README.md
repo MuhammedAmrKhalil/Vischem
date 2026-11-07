@@ -151,7 +151,7 @@ The redesigned palette features:
 | `:deselect` / `:none` | — | Deselect all |
 | `:pdk` | `[name] [corner]`| Switch PDK preset (e.g. `:pdk sky130 tt`, `:pdk gf180`, `:pdk none`) |
 | `:corner` | `<corner>` | Switch active simulation corner (e.g. `:corner ss`, `:corner tt`) |
-| `:wl` / `:sizing` | `[default\|min\|apply]` | Configure MOSFET W/L sizing mode or batch-apply to schematic (:wl min, :wl apply) |
+| `:wl` / `:sizing` | `[apply]` | Inspect active PDK min W/L dimensions or apply to schematic (:wl, :wl apply) |
 | `:models` | — | Open Model Manager dialog |
 | `:sim` / `:analysis` | — | Open Simulation Settings dialog (configure multiple analyses) |
 | `:run` | — | Run NGspice simulation for all enabled analyses |
@@ -209,30 +209,29 @@ Configure device models project-wide:
    - Auto-populates MOSFET and BJT model name dropdowns with genuine PDK device models (e.g., `sky130_fd_pr__nfet_01v8`, `nfet_03v3`, `sg13_lv_nmos`).
    - Real-time symbol synchronization: updating Width, Length, or parallel fingers ($M$) in the Properties dialog immediately updates the displayed $W/L$ text on the canvas and emits `m=<fingers>` into the SPICE netlist.
 
-### PDK Default vs. Minimum W/L Sizing
+### PDK Minimum W/L Sizing
 
-Vischem supports both **PDK Nominal Defaults** and **PDK Minimum Dimensions** (DRC / model minimums) for NMOS and PMOS transistors across all supported foundry PDKs and generic fallbacks:
+When a PDK is selected, **the minimum $W/L$ values according to that PDK are automatically applied** to NMOS and PMOS transistors (both on the schematic and for new components placed):
 
-| PDK Preset | Device | Nominal Default ($W / L$) | PDK Minimum DRC ($W_{\min} / L_{\min}$) |
+| PDK Preset | Device | Minimum DRC Sizing ($W_{\min} / L_{\min}$) | Nominal Reference |
 |:---|:---|:---:|:---:|
-| **SkyWater 130nm** (`sky130`) | NMOS (`nfet_01v8`)<br>PMOS (`pfet_01v8`) | `1.0µm / 0.15µm`<br>`2.0µm / 0.15µm` | `0.42µm / 0.15µm`<br>`0.42µm / 0.15µm` |
-| **GF180MCU 180nm** (`gf180`) | NMOS (`nfet_03v3`)<br>PMOS (`pfet_03v3`) | `2.0µm / 0.28µm`<br>`4.0µm / 0.28µm` | `0.22µm / 0.28µm`<br>`0.22µm / 0.28µm` |
-| **IHP SG13G2 130nm** (`ihp`) | NMOS (`sg13_lv_nmos`)<br>PMOS (`sg13_lv_pmos`) | `1.0µm / 0.45µm`<br>`2.0µm / 0.45µm` | `0.15µm / 0.13µm`<br>`0.15µm / 0.13µm` |
-| **Generic (Inline / Level 1)** | NMOS<br>PMOS | `2.0µm / 180nm`<br>`4.0µm / 180nm` | `180nm / 180nm`<br>`180nm / 180nm` |
+| **SkyWater 130nm** (`sky130`) | NMOS (`nfet_01v8`)<br>PMOS (`pfet_01v8`) | `0.42µm / 0.15µm`<br>`0.42µm / 0.15µm` | `1.0µm / 0.15µm`<br>`2.0µm / 0.15µm` |
+| **GF180MCU 180nm** (`gf180`) | NMOS (`nfet_03v3`)<br>PMOS (`pfet_03v3`) | `0.22µm / 0.28µm`<br>`0.22µm / 0.28µm` | `2.0µm / 0.28µm`<br>`4.0µm / 0.28µm` |
+| **IHP SG13G2 130nm** (`ihp`) | NMOS (`sg13_lv_nmos`)<br>PMOS (`sg13_lv_pmos`) | `0.15µm / 0.13µm`<br>`0.15µm / 0.13µm` | `1.0µm / 0.45µm`<br>`2.0µm / 0.45µm` |
+| **Generic (Inline / Level 1)** | NMOS<br>PMOS | `180nm / 180nm`<br>`180nm / 180nm` | `2.0µm / 180nm`<br>`4.0µm / 180nm` |
 
-**How to Use Sizing Modes:**
-1. **Model Manager (`:models` or Models button)**:
-   - Select either **PDK Default (Nominal)** or **PDK Minimum (DRC / Model min)** under *MOSFET Dimensions (W/L)*.
-   - Click **Apply to Canvas Transistors** to immediately batch-update existing NMOS and PMOS transistors on the schematic to the chosen PDK sizing.
-2. **MOSFET Properties Dialog**:
+**How Sizing Works:**
+1. **PDK Selection in Model Manager (`:models` or Models button)**:
+   - Selecting a PDK immediately displays its minimum W/L dimensions.
+   - Clicking **Apply** updates active schematic transistors to the PDK's minimum dimensions.
+2. **Command Palette / CLI (`:pdk`)**:
+   - Running `:pdk sky130`, `:pdk gf180`, or `:pdk ihp` switches the PDK and automatically applies its minimum W/L dimensions to all schematic transistors.
+   - `:wl apply` re-applies the PDK's minimum W/L to all transistors at any time.
+3. **MOSFET Properties Dialog**:
    - Double-click any MOSFET or right-click $\rightarrow$ **Properties**.
-   - Use the one-click preset buttons `[Default (nom_w/nom_l)]` and `[Min (min_w/min_l)]` to instantly set nominal or DRC minimum dimensions.
-3. **Command Palette / CLI**:
-   - `:wl min` — Switch default sizing to PDK DRC minimums.
-   - `:wl default` — Switch default sizing to PDK nominal dimensions.
-   - `:wl apply` — Batch-apply active sizing mode to all schematic transistors.
-   - `:nmos min` / `:pmos min` — Place a transistor directly at PDK minimum dimensions.
-   - `:nmos def` / `:pmos def` — Place a transistor directly at PDK nominal dimensions.
+   - Use the one-click preset button `[PDK Min (w/l)]` to snap entry fields to the exact minimum dimensions.
+4. **Direct Placement**:
+   - Dropping transistors via `:nmos` or `:pmos` automatically uses the minimum W/L of the active PDK.
 
 ---
 

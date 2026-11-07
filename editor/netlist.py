@@ -233,11 +233,11 @@ class ModelConfig:
     file_path    : str  = ""
     corner       : str  = "tt"
     pdk_name     : str  = ""         # "" | "gf180" | "sky130" | "ihp"
-    wl_mode      : str  = "default"  # "default" | "min"
+    wl_mode      : str  = "min"      # "min" | "default"
     device_models: dict = field(default_factory=dict)
 
     def apply_pdk(self, pdk_name: str, corner: str = None):
-        """Configure models, file paths, corner, and default W/L for a given PDK."""
+        """Configure models, file paths, corner, and min W/L for a given PDK."""
         self.pdk_name = pdk_name
         resolved = resolve_pdk(pdk_name) if pdk_name else None
         if resolved:
@@ -253,7 +253,7 @@ class ModelConfig:
                 if dt in resolved.default_models:
                     self.device_models[dt]["name"] = resolved.default_models[dt]
                 if dt in ("NMOS", "PMOS"):
-                    wl = resolved.min_wl.get(dt) if self.wl_mode == "min" else resolved.default_wl.get(dt)
+                    wl = resolved.min_wl.get(dt) or resolved.default_wl.get(dt)
                     if wl:
                         self.device_models[dt]["w"] = wl[0]
                         self.device_models[dt]["l"] = wl[1]
@@ -265,7 +265,7 @@ class ModelConfig:
                     self.device_models[dt] = {}
                 self.device_models[dt]["name"] = _DEFAULT_MODEL_NAMES.get(dt, f"{dt}_GENERIC")
                 if dt in ("NMOS", "PMOS"):
-                    wl = _DEFAULT_MIN_WL.get(dt) if self.wl_mode == "min" else _DEFAULT_WL.get(dt)
+                    wl = _DEFAULT_MIN_WL.get(dt) or _DEFAULT_WL.get(dt)
                     if wl:
                         self.device_models[dt]["w"] = wl[0]
                         self.device_models[dt]["l"] = wl[1]
@@ -320,19 +320,17 @@ class ModelConfig:
             "name", _DEFAULT_MODEL_NAMES.get(device_type, "UNKNOWN"))
 
     def default_wl(self, device_type: str) -> tuple[str, str]:
-        """Return (W, L) for a MOSFET device type respecting active PDK and wl_mode."""
-        if self.wl_mode == "min":
-            return self.min_wl(device_type)
+        """Return (W, L) for a MOSFET device type. For PDKs, returns minimum (W, L)."""
         if self.pdk_name:
             resolved = resolve_pdk(self.pdk_name)
-            if resolved and device_type in resolved.default_wl:
-                return resolved.default_wl[device_type]
+            if resolved and device_type in resolved.min_wl:
+                return resolved.min_wl[device_type]
         dm = self.device_models.get(device_type, {})
         w = dm.get("w")
         l = dm.get("l")
         if w and l:
             return w, l
-        return _DEFAULT_WL.get(device_type, ("2u", "180n"))
+        return self.min_wl(device_type)
 
     def min_wl(self, device_type: str) -> tuple[str, str]:
         """Return minimum (W, L) for a MOSFET based on active PDK."""
