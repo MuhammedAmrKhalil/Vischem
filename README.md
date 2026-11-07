@@ -82,7 +82,7 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | `M` | Toggle mouse mode |
 | `+ / -` | Zoom in / out |
 | `Del` | Delete selected element(s) or item at cursor |
-| shift + `:` | Open command dialog |
+| `:` / `Ctrl + P` | Open modern Command Palette |
 
 ---
 
@@ -109,23 +109,66 @@ Vischem provides complete multi-element selection, group operations, and clipboa
 
 ---
 
-## Command dialog
+## Command Palette (`:` / `Ctrl+P`)
 
-Press shift + `:` then type one of these commands:
+Press `:` (or `Ctrl+P`, or click **Cmd** in the toolbar) to open the floating **Command Palette**.
 
-```
-undo / redo               Undo / Redo last schematic change
-copy / paste / cut        Copy / Paste / Cut component or net label
-nmos  pmos  npn  pnp      Place transistor
-in  out  inout  vdd  vss  Place port / power symbol
-pdk <sky130|gf180|ihp>   Switch active PDK preset
-sim                       Simulation setup
-save                      Save schematic (.json / .svg / .png …)
-load                      Load schematic (.json)
-netlist                   Export SPICE netlist (.cir)
-doc                       Export black-on-white documentation image
-clear                     Clear canvas (undoable)
-```
+The redesigned palette features:
+- **Clean Interface**: Zero clutter — all prompt headers above the input are removed, giving direct focus to your command.
+- **Live Autocomplete**: Real-time fuzzy filtering of all commands, shorthands, and syntax templates with immediate previews.
+- **Keyboard Navigation**: Use `↑` / `↓` to navigate suggestions or cycle through previous command history.
+- **Tab Completion**: Press `Tab` to autocomplete the highlighted command name and cursor into argument position.
+- **Direct Parameter Passing**: Place components, set values, and configure simulation directly in one command.
+
+### Available Commands & Shorthands
+
+| Command / Alias | Arguments | Description & Example |
+|---|---|---|
+| `:r` / `:res` / `:resistor` | `[val]` | Place resistor at cursor with value (e.g. `:r 10k`, `:r 4.7k`) |
+| `:c` / `:cap` / `:capacitor` | `[val]` | Place capacitor at cursor with value (e.g. `:c 100p`, `:c 1u`) |
+| `:l` / `:ind` / `:inductor` | `[val]` | Place inductor at cursor with value (e.g. `:l 10u`, `:l 1m`) |
+| `:v` / `:vsrc` / `:dc` | `[val]` | Place voltage source at cursor with DC value (e.g. `:v 5V`, `:v 3.3V DC`) |
+| `:i` / `:isrc` | `[val]` | Place current source at cursor with value (e.g. `:i 1m`, `:i 10u`) |
+| `:g` / `:gnd` / `:ground` | — | Place ground symbol at cursor |
+| `:nmos` / `:m` / `:mos` | `[w] [l]` | Place NMOS transistor with width & length (e.g. `:nmos 10u 0.18u`) |
+| `:pmos` | `[w] [l]` | Place PMOS transistor with width & length (e.g. `:pmos 20u 0.18u`) |
+| `:npn` / `:bjt` | `[model]` | Place NPN BJT with model (e.g. `:npn 2N2222`) |
+| `:pnp` | `[model]` | Place PNP BJT with model (e.g. `:pnp 2N2907`) |
+| `:in` / `:out` / `:inout` | `[name]` | Place port pin with custom net name (e.g. `:in VIN`, `:out VOUT`) |
+| `:vdd` / `:vss` | `[name]` | Place power/ground rail pin (e.g. `:vdd VDD`, `:vss VSS`) |
+| `:pin` | `[name] [type]` | Place port pin of specified type (e.g. `:pin CLK inout`) |
+| `:w` / `:wire` | — | Enter interactive Wire drawing mode from cursor |
+| `:lbl` / `:label` / `:t` | `<name>` | Place or rename net label at cursor (e.g. `:label CLK_IN`) |
+| `:undo` / `:u` | — | Undo last change |
+| `:redo` / `:U` | — | Redo last undone change |
+| `:copy` / `:cp` | — | Copy selected element(s) |
+| `:cut` / `:x` | — | Cut selected element(s) |
+| `:paste` / `:p` | — | Paste clipboard element(s) |
+| `:del` / `:delete` / `:rm` | — | Delete selected element(s) |
+| `:rot` / `:rotate` | `[deg]` | Rotate selection or cursor component (e.g. `:rot 90`, `:rot 180`) |
+| `:flip` / `:fl` | — | Flip / mirror selection horizontally |
+| `:all` / `:sel` | — | Select all components, wires, and labels |
+| `:deselect` / `:none` | — | Deselect all |
+| `:pdk` | `[name] [corner]`| Switch PDK preset (e.g. `:pdk sky130 tt`, `:pdk gf180`, `:pdk none`) |
+| `:corner` | `<corner>` | Switch active simulation corner (e.g. `:corner ss`, `:corner tt`) |
+| `:models` | — | Open Model Manager dialog |
+| `:sim` / `:analysis` | — | Open Simulation Settings dialog |
+| `:run` | — | Run NGspice simulation |
+| `:op` | — | Set simulation mode to DC Operating Point |
+| `:tran` | `[tstop] [tstep]`| Configure transient simulation (e.g. `:tran 10u 1n`) |
+| `:ac` | `[dec] [pts] [fstart] [fstop]` | Configure AC frequency sweep |
+| `:dc` | `[src] [start] [stop] [step]` | Configure DC sweep |
+| `:raw` / `:showraw` | — | Reveal NGspice `.raw` simulation data file |
+| `:save` / `:w` | `[path]` | Save schematic JSON directly to path or open dialog |
+| `:load` / `:open` | `[path]` | Load schematic JSON directly from path or open dialog |
+| `:netlist` / `:nl` | `[path]` | Export SPICE netlist (.cir) |
+| `:export` | `<png\|svg\|doc> [path]` | Export image or publication documentation diagram |
+| `:zoom` / `:z` | `[pct\|+\|-\|fit]` | Adjust canvas zoom (e.g. `:zoom 150`, `:z +`, `:z fit`) |
+| `:goto` / `:pos` | `<x> <y>` | Move cursor to grid coordinates (e.g. `:goto 10 15`) |
+| `:mouse` / `:m` | — | Toggle mouse crosshair cursor mode |
+| `:clear` / `:cls` | — | Clear schematic canvas |
+| `:help` / `:?` | — | Show quick help summary |
+| `:quit` / `:exit` / `:q` | — | Exit Vischem |
 
 ---
 

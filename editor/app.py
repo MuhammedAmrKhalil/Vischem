@@ -220,6 +220,59 @@ PIN_TYPES = {"PIN_IN", "PIN_OUT", "PIN_INOUT", "PIN_VDD", "PIN_VSS"}
 WIRE_LBL_COLOR = "#38bdf8"   # cyan — wire net labels
 PIN_COLOR      = "#7dd3fc"   # sky-blue — pin flags
 
+# ── Command Palette Catalog (command template, aliases, description) ─────────
+COMMAND_CATALOG = [
+    ("resistor [val]",                  ["r", "res", "resistor"],           "Place resistor (e.g. :r 10k)"),
+    ("capacitor [val]",                 ["c", "cap", "capacitor"],          "Place capacitor (e.g. :c 100p)"),
+    ("inductor [val]",                  ["l", "ind", "inductor"],           "Place inductor (e.g. :l 10u)"),
+    ("vsource [val]",                   ["v", "vsrc", "dc"],                "Place voltage source (e.g. :v 5V)"),
+    ("isource [val]",                   ["i", "isrc"],                      "Place current source (e.g. :i 1m)"),
+    ("ground",                          ["g", "gnd", "ground"],             "Place ground (:gnd)"),
+    ("nmos [w] [l]",                    ["nmos", "m", "mos"],               "Place NMOS transistor (e.g. :nmos 10u 0.18u)"),
+    ("pmos [w] [l]",                    ["pmos"],                           "Place PMOS transistor (e.g. :pmos 20u 0.18u)"),
+    ("npn [model]",                     ["npn", "bjt"],                     "Place NPN BJT (e.g. :npn 2N2222)"),
+    ("pnp [model]",                     ["pnp"],                            "Place PNP BJT (e.g. :pnp 2N2907)"),
+    ("in [name]",                       ["in"],                             "Place input pin (e.g. :in VIN)"),
+    ("out [name]",                      ["out"],                            "Place output pin (e.g. :out VOUT)"),
+    ("inout [name]",                    ["inout"],                          "Place bidir pin (e.g. :inout CLK)"),
+    ("vdd [name]",                      ["vdd"],                            "Place VDD power pin (e.g. :vdd VDD)"),
+    ("vss [name]",                      ["vss"],                            "Place VSS power pin (e.g. :vss VSS)"),
+    ("pin [name] [type]",               ["pin"],                            "Place pin (:pin VIN in)"),
+    ("wire",                            ["w", "wire"],                      "Start routing wire from cursor (:w)"),
+    ("label <name>",                    ["lbl", "label", "t", "net"],       "Place net label at cursor (:lbl VIN)"),
+    ("undo",                            ["u", "undo"],                      "Undo last action (:u)"),
+    ("redo",                            ["U", "redo"],                      "Redo last undone action (:U)"),
+    ("copy",                            ["copy", "cp"],                     "Copy selection to clipboard (:cp)"),
+    ("cut",                             ["cut", "x"],                       "Cut selection to clipboard"),
+    ("paste",                           ["paste", "p"],                     "Paste from clipboard (:paste)"),
+    ("delete",                          ["del", "delete", "rm", "d"],       "Delete selected components/wires"),
+    ("rotate [deg]",                    ["rot", "rotate", "r90"],           "Rotate selection 90° or [deg] (:rot 90)"),
+    ("flip",                            ["flip", "fl"],                     "Flip / mirror selection horizontally"),
+    ("all",                             ["all", "selectall", "sa", "sel"],  "Select all components and wires"),
+    ("deselect",                        ["deselect", "none", "unselect", "desel"], "Clear selection"),
+    ("pdk [name] [corner]",             ["pdk", "pdks"],                    "Switch PDK (:pdk sky130 tt | gf180 | ihp | none)"),
+    ("corner <corner>",                 ["corner"],                         "Switch active corner (tt/ss/ff/sf/fs)"),
+    ("sim",                             ["sim", "simulate", "analysis"],    "Open simulation settings dialog"),
+    ("run",                             ["run"],                            "Run NGspice simulation"),
+    ("op",                              ["op"],                             "Configure Operating Point simulation"),
+    ("tran [tstop] [tstep]",            ["tran"],                           "Configure Transient simulation (:tran 10u 1n)"),
+    ("ac [dec] [pts] [fstart] [fstop]", ["ac"],                             "Configure AC sweep simulation"),
+    ("dc [src] [start] [stop] [step]",  ["dc"],                             "Configure DC sweep simulation"),
+    ("netlist [path]",                  ["netlist", "nl"],                  "Export or view NGspice netlist"),
+    ("raw",                             ["raw", "showraw"],                 "Show raw simulation results file"),
+    ("models",                          ["models"],                         "Open Model Manager dialog"),
+    ("save [path]",                     ["save"],                           "Save schematic to JSON (:save circuit.json)"),
+    ("load [path]",                     ["load", "open"],                   "Open schematic from JSON (:load circuit.json)"),
+    ("export <png|svg>",                ["export", "savepng", "savesvg"],   "Export raster PNG or vector SVG"),
+    ("doc [path]",                      ["doc", "docimg", "savedoc"],       "Save publication-quality doc image"),
+    ("zoom [pct|in|out|fit]",           ["zoom", "z"],                      "Set zoom level (:zoom 150, :z +)"),
+    ("goto <x> <y>",                    ["goto", "move", "pos"],            "Jump cursor to grid position (:goto 10 15)"),
+    ("mouse",                           ["mouse", "m"],                     "Toggle mouse crosshair cursor"),
+    ("clear",                           ["clear", "cls", "clr"],            "Clear schematic canvas"),
+    ("help [topic]",                    ["help", "?"],                      "Show command help and hotkeys"),
+    ("quit",                            ["quit", "exit", "q"],              "Quit Vischem"),
+]
+
 # ── Voltage source waveform definitions ───────────────────────────────────────
 # Used by the V-source Properties dialog (E key) and by netlist.py emit logic.
 # spice lambda signature: (params, dc_bias, ac_mag, ac_phase)
@@ -650,6 +703,8 @@ class Editor:
         self._undo_stack : list[dict] = []
         self._redo_stack : list[dict] = []
         self._clipboard  : dict | None = None
+        self._cmd_history: list[str] = []
+        self._cmd_dlg    : tk.Toplevel | None = None
 
         # Multi-element selection
         self.selected_comps : set[Component]  = set()
@@ -750,6 +805,11 @@ class Editor:
             font=("Courier", 8, "bold"), relief="flat",
             cursor="hand2", padx=6)
         self.btn_paste.pack(side=tk.LEFT, padx=1)
+        self.btn_cmd = tk.Button(ef, text="Cmd", command=self._open_cmd,
+            bg=BTN_BG, fg="#38bdf8", activebackground=BTN_ACTIVE_BG, activeforeground="#ffffff",
+            font=("Courier", 8, "bold"), relief="flat",
+            cursor="hand2", padx=6)
+        self.btn_cmd.pack(side=tk.LEFT, padx=(4, 1))
 
         tk.Button(top, text="Clear", command=self._clear,
             bg=BTN_BG, fg="#f87171", activebackground="#3d1e28",
@@ -1056,6 +1116,8 @@ class Editor:
             w.bind("<Control-X>",       lambda e: (self._cut(), "break")[1])
             w.bind("<Control-a>",       lambda e: (self._select_all(), "break")[1])
             w.bind("<Control-A>",       lambda e: (self._select_all(), "break")[1])
+            w.bind("<Control-p>",       lambda e: (self._open_cmd(), "break")[1])
+            w.bind("<Control-P>",       lambda e: (self._open_cmd(), "break")[1])
 
     def _on_canvas_enter(self, ev=None):
         try:
@@ -3134,45 +3196,451 @@ class Editor:
                 "#38bdf8" if self.model_config.pdk_name else "#f87171")
 
     def _open_cmd(self):
-        cmd = self._ask("Command",
-            "all  deselect  ·  undo  redo  copy  paste  cut  ·  nmos  pmos  npn  pnp  ·  "
-            "in  out  inout  vdd  vss  ·  pdk  sim  ·  save  load  netlist  savesvg  savepng  doc clear",
-            color="#38bdf8")
-        if cmd and cmd.strip():
-            self._exec_cmd(cmd.strip())
-        else:
+        """Open a sleek, flexible, modern command palette with autocomplete, history, and parameter support."""
+        if getattr(self, "_cmd_dlg", None) and self._cmd_dlg.winfo_exists():
+            self._cmd_dlg.lift()
+            return
+
+        dlg = tk.Toplevel(self.root)
+        self._cmd_dlg = dlg
+        dlg.title("Command Palette")
+        dlg.configure(bg=PANEL_BG)
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        # Modern palette frame
+        main_frame = tk.Frame(dlg, bg=PANEL_BG, padx=8, pady=8)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Top input box - NO TEXT ABOVE THE ENTRY!
+        inp_box = tk.Frame(main_frame, bg=ENTRY_BG, bd=1, relief="solid",
+                           highlightbackground="#38bdf8", highlightcolor="#38bdf8", highlightthickness=1)
+        inp_box.pack(fill=tk.X, pady=(0, 6))
+
+        prompt_lbl = tk.Label(inp_box, text=">", bg=ENTRY_BG, fg="#38bdf8",
+                              font=("Courier", 13, "bold"), padx=8, pady=6)
+        prompt_lbl.pack(side=tk.LEFT)
+
+        cmd_var = tk.StringVar()
+        ent = tk.Entry(inp_box, textvariable=cmd_var, bg=ENTRY_BG, fg=ENTRY_FG,
+                       insertbackground="#38bdf8", font=("Courier", 11),
+                       relief="flat", bd=0, selectbackground="#1e3a5f", width=48)
+        ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8), pady=6)
+        ent.focus_set()
+
+        # Suggestion listbox
+        sugg_box = tk.Frame(main_frame, bg="#14151f", bd=1, relief="solid",
+                            highlightbackground=BORDER, highlightthickness=1)
+        sugg_box.pack(fill=tk.BOTH, expand=True)
+
+        sugg_list = tk.Listbox(sugg_box, bg="#14151f", fg="#cbd5e1",
+                               selectbackground="#1e3a5f", selectforeground="#38bdf8",
+                               font=("Courier", 10), relief="flat", bd=0,
+                               highlightthickness=0, height=8, activestyle="none")
+        sugg_scroll = tk.Scrollbar(sugg_box, orient=tk.VERTICAL, command=sugg_list.yview,
+                                   bg=PANEL_BG, troughcolor="#14151f", relief="flat", bd=0)
+        sugg_list.config(yscrollcommand=sugg_scroll.set)
+        sugg_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sugg_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Footer help guide (at the bottom)
+        footer = tk.Label(main_frame,
+                          text="[↵] Run   [Tab] Complete   [↑/↓] Navigate / History   [Esc] Close",
+                          bg=PANEL_BG, fg="#64748b", font=("Helvetica", 8))
+        footer.pack(fill=tk.X, pady=(6, 0))
+
+        # Data & autocomplete filtering logic
+        displayed_items = []
+        hist_idx = [len(self._cmd_history)]
+
+        def _update_suggestions(*args):
+            nonlocal displayed_items
+            sugg_list.delete(0, tk.END)
+            displayed_items = []
+            raw = cmd_var.get().strip()
+            if raw.startswith(":"):
+                raw = raw[1:].strip()
+            tokens = raw.split()
+            prefix = tokens[0].lower() if tokens else ""
+
+            if not prefix:
+                matches = list(COMMAND_CATALOG)
+            else:
+                exact_matches = []
+                prefix_matches = []
+                sub_matches = []
+                for entry in COMMAND_CATALOG:
+                    cmd_tmpl, aliases, desc = entry
+                    # 1. Exact match on alias or primary word
+                    if prefix in aliases or prefix == cmd_tmpl.split()[0].lower():
+                        exact_matches.append(entry)
+                    # 2. Prefix match on any alias or primary word
+                    elif any(a.startswith(prefix) for a in aliases) or cmd_tmpl.lower().startswith(prefix):
+                        prefix_matches.append(entry)
+                    # 3. Substring match in description or command
+                    elif prefix in cmd_tmpl.lower() or prefix in desc.lower():
+                        sub_matches.append(entry)
+                matches = exact_matches + prefix_matches + sub_matches
+
+            displayed_items = matches
+            for cmd_tmpl, aliases, desc in matches:
+                display_str = f":{cmd_tmpl:<24}  {desc}"
+                sugg_list.insert(tk.END, display_str)
+
+            if matches:
+                sugg_list.selection_clear(0, tk.END)
+                sugg_list.selection_set(0)
+                sugg_list.activate(0)
+                sugg_list.see(0)
+
+        cmd_var.trace_add("write", _update_suggestions)
+        _update_suggestions()
+
+        def _close():
+            try:
+                dlg.grab_release()
+            except Exception:
+                pass
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
+            self._cmd_dlg = None
+            self.cv.focus_set()
             self._render()
+
+        def _run_and_close(cmd_text: str | None = None):
+            if cmd_text is None:
+                cmd_text = cmd_var.get().strip()
+                if not cmd_text and displayed_items:
+                    sel = sugg_list.curselection()
+                    idx = sel[0] if sel else 0
+                    if 0 <= idx < len(displayed_items):
+                        cmd_tmpl, aliases, _ = displayed_items[idx]
+                        cmd_text = aliases[0]
+            _close()
+            if cmd_text:
+                clean_cmd = cmd_text.strip()
+                if clean_cmd.startswith(":"):
+                    clean_cmd = clean_cmd[1:].strip()
+                if clean_cmd:
+                    if not self._cmd_history or self._cmd_history[-1] != clean_cmd:
+                        self._cmd_history.append(clean_cmd)
+                    self._exec_cmd(clean_cmd)
+
+        def _on_tab(e=None):
+            sel = sugg_list.curselection()
+            if sel and displayed_items:
+                idx = sel[0]
+                if 0 <= idx < len(displayed_items):
+                    cmd_tmpl, aliases, _ = displayed_items[idx]
+                    alias_cmd = aliases[0]
+                    raw = cmd_var.get().strip()
+                    if raw.startswith(":"):
+                        raw = raw[1:].strip()
+                    parts = raw.split()
+                    extra = (" " + " ".join(parts[1:])) if len(parts) > 1 else " "
+                    cmd_var.set(f":{alias_cmd}{extra}")
+                    ent.icursor(tk.END)
+            return "break"
+
+        def _on_down(e=None):
+            sel = sugg_list.curselection()
+            if displayed_items:
+                curr = sel[0] if sel else -1
+                nxt = min(len(displayed_items) - 1, curr + 1)
+                sugg_list.selection_clear(0, tk.END)
+                sugg_list.selection_set(nxt)
+                sugg_list.activate(nxt)
+                sugg_list.see(nxt)
+            elif self._cmd_history:
+                if hist_idx[0] < len(self._cmd_history) - 1:
+                    hist_idx[0] += 1
+                    cmd_var.set(f":{self._cmd_history[hist_idx[0]]}")
+                    ent.icursor(tk.END)
+                elif hist_idx[0] == len(self._cmd_history) - 1:
+                    hist_idx[0] = len(self._cmd_history)
+                    cmd_var.set("")
+            return "break"
+
+        def _on_up(e=None):
+            sel = sugg_list.curselection()
+            curr = sel[0] if sel else 0
+            if curr > 0 and displayed_items:
+                prev_i = curr - 1
+                sugg_list.selection_clear(0, tk.END)
+                sugg_list.selection_set(prev_i)
+                sugg_list.activate(prev_i)
+                sugg_list.see(prev_i)
+            else:
+                if self._cmd_history and hist_idx[0] > 0:
+                    hist_idx[0] -= 1
+                    cmd_var.set(f":{self._cmd_history[hist_idx[0]]}")
+                    ent.icursor(tk.END)
+            return "break"
+
+        def _on_list_click(e=None):
+            sel = sugg_list.curselection()
+            if sel and displayed_items:
+                idx = sel[0]
+                if 0 <= idx < len(displayed_items):
+                    cmd_tmpl, aliases, _ = displayed_items[idx]
+                    cmd_var.set(f":{aliases[0]} ")
+                    ent.icursor(tk.END)
+                    ent.focus_set()
+
+        def _on_list_double_click(e=None):
+            sel = sugg_list.curselection()
+            if sel and displayed_items:
+                idx = sel[0]
+                if 0 <= idx < len(displayed_items):
+                    cmd_tmpl, aliases, _ = displayed_items[idx]
+                    if "[" in cmd_tmpl or "<" in cmd_tmpl:
+                        cmd_var.set(f":{aliases[0]} ")
+                        ent.icursor(tk.END)
+                        ent.focus_set()
+                    else:
+                        _run_and_close(aliases[0])
+
+        ent.bind("<Return>", lambda e: _run_and_close())
+        ent.bind("<Escape>", lambda e: _close())
+        ent.bind("<Tab>",    _on_tab)
+        ent.bind("<Down>",   _on_down)
+        ent.bind("<Up>",     _on_up)
+        sugg_list.bind("<Button-1>", _on_list_click)
+        sugg_list.bind("<Double-Button-1>", _on_list_double_click)
+        sugg_list.bind("<Return>", lambda e: _run_and_close())
+        dlg.bind("<Escape>", lambda e: _close())
+
+        self.root.update_idletasks()
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - 580) // 2
+        ry = self.root.winfo_rooty() + max(40, (self.root.winfo_height() - 250) // 4)
+        dlg.geometry(f"580x250+{max(10, rx)}+{max(10, ry)}")
 
     # ── Command dispatcher ─────────────────────────────────────────────────────
     def _exec_cmd(self, raw: str):
-        parts = raw.strip().split()
-        if not parts: return
+        if not raw:
+            return
+        raw = raw.strip()
+        if raw.startswith(":"):
+            raw = raw[1:].strip()
+        parts = raw.split()
+        if not parts:
+            return
         cmd = parts[0].lower()
-        arg = parts[1] if len(parts) > 1 else None
+        args = parts[1:]
+        arg = args[0] if args else None
 
-        if cmd in ("all", "selectall", "sa"):
+        # Selection & Clear
+        if cmd in ("all", "selectall", "sa", "sel"):
             self._select_all()
-        elif cmd in ("none", "deselect", "unselect"):
+        elif cmd in ("none", "deselect", "unselect", "desel"):
             self._clear_selection()
             self._status("Selection cleared", "#94a3b8")
             self._render()
-        elif cmd == "undo":
+        elif cmd in ("clear", "cls", "clr"):
+            self._clear()
+
+        # Edit Operations
+        elif cmd in ("undo", "u"):
             self._undo()
-        elif cmd == "redo":
+        elif cmd in ("redo", "u"):
             self._redo()
-        elif cmd == "copy":
+        elif cmd in ("copy", "cp"):
             self._copy()
-        elif cmd == "paste":
+        elif cmd in ("paste", "p"):
             self._paste()
-        elif cmd == "cut":
+        elif cmd in ("cut", "x"):
             self._cut()
-        elif cmd in ("nmos","pmos","npn","pnp"):
-            self._place_device(cmd.upper())
-        elif cmd in ("pin","in","out","inout","vdd","vss"):
-            # map shorthand → internal type
+        elif cmd in ("del", "delete", "rm", "d"):
+            self._delete()
+        elif cmd in ("rot", "rotate", "r90"):
+            deg = 90
+            if args:
+                try: deg = int(args[0])
+                except: deg = 90
+            steps = ((deg % 360) + 360) % 360 // 90
+            if steps == 0: steps = 1
+            targets = list(self.selected_comps) if self.selected_comps else ([self._at_cursor()] if self._at_cursor() else [])
+            if not targets:
+                self._status("[!] No selection or component at cursor to rotate", "#f87171")
+            else:
+                self._push_undo()
+                for c in targets:
+                    c.rot = (c.rot + steps * 90) % 360
+                self._status(f"✓ Rotated {len(targets)} component(s) by {steps * 90}°", "#38bdf8")
+                self._render()
+        elif cmd in ("flip", "fl"):
+            self._flip()
+
+        # Component Placement with parameter support
+        elif cmd in ("r", "res", "resistor"):
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            val = args[0] if args else None
+            c = Component("R", *self.cursor, value=val)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Resistor ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("c", "cap", "capacitor"):
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            val = args[0] if args else None
+            c = Component("C", *self.cursor, value=val)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Capacitor ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("l", "ind", "inductor"):
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            val = args[0] if args else None
+            c = Component("L", *self.cursor, value=val)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Inductor ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("v", "vsrc", "dc"):
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            val = " ".join(args) if args else None
+            c = Component("V", *self.cursor, value=val)
+            if val:
+                c.vsrc_dc = val.split()[0]
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Voltage Source ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("i", "isrc"):
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            val = " ".join(args) if args else None
+            c = Component("I", *self.cursor, value=val)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Current Source ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("g", "gnd", "ground"):
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            c = Component("G", *self.cursor)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Ground at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("nmos", "pmos", "m", "mos"):
+            typ = "PMOS" if cmd == "pmos" else "NMOS"
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            c = Component(typ, *self.cursor)
+            dw, dl = self.model_config.default_wl(typ)
+            if len(args) >= 2:
+                c.mos_w = args[0]
+                c.mos_l = args[1]
+            elif len(args) == 1:
+                c.mos_w = args[0]
+                if dl: c.mos_l = dl
+            elif dw or dl:
+                c.mos_w = dw
+                c.mos_l = dl
+            c.update_mos_value()
+            c.model_name = self.model_config.model_name(typ)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed {typ} ({c.label} {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("npn", "pnp", "bjt"):
+            typ = "PNP" if cmd == "pnp" else "NPN"
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            c = Component(typ, *self.cursor)
+            model = args[0] if args else self.model_config.model_name(typ)
+            if model:
+                c.model_name = model
+                if not model.endswith("_GENERIC"):
+                    c.value = model
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed {typ} ({c.label} = {c.value}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        elif cmd in ("pin", "in", "out", "inout", "vdd", "vss"):
             _map = {"pin":"PIN_IN","in":"PIN_IN","out":"PIN_OUT",
                     "inout":"PIN_INOUT","vdd":"PIN_VDD","vss":"PIN_VSS"}
-            self._place_device(_map[cmd])
+            typ = _map.get(cmd, "PIN_IN")
+            lbl_name = None
+            if cmd == "pin":
+                if len(args) >= 2:
+                    lbl_name = args[0]
+                    typ = _map.get(args[1].lower(), "PIN_IN")
+                elif len(args) == 1:
+                    if args[0].lower() in _map:
+                        typ = _map[args[0].lower()]
+                    else:
+                        lbl_name = args[0]
+            elif args:
+                lbl_name = args[0]
+
+            if self._at_cursor():
+                self._status("[!] Cell occupied — move cursor first", "#f87171"); return
+            self._push_undo()
+            self._clear_selection()
+            c = Component(typ, *self.cursor, label=lbl_name)
+            self.comps.append(c)
+            self.selected_comps.add(c)
+            self._status(f"✓ Placed Pin ({c.label} {typ}) at {self.cursor}", "#4ade80")
+            self._render()
+
+        # Wiring & Labels
+        elif cmd in ("w", "wire"):
+            if cmd == "w" and args:
+                self._save_json(args[0])
+            else:
+                self._start_wire()
+
+        elif cmd in ("lbl", "label", "t", "net"):
+            if args:
+                text = " ".join(args)
+                gx, gy = self.cursor
+                self._push_undo()
+                existing = next((l for l in self.wlbls if l.gx == gx and l.gy == gy), None)
+                if existing:
+                    existing.text = text
+                else:
+                    wl = WireLabel(gx, gy, text)
+                    self.wlbls.append(wl)
+                    self.selected_wlbls = {wl}
+                self._status(f"✓ Net label '{text}' set at ({gx},{gy})", "#38bdf8")
+                self._render()
+            else:
+                self._label_wire()
+
+        # PDK & Corner
         elif cmd in ("pdk", "pdks"):
             if not arg or arg in ("status", "list"):
                 pdks = detect_installed_pdks()
@@ -3209,35 +3677,130 @@ class Editor:
                     self._status(f"{status_icon} PDK set to {resolved.display_name} [{corner}]",
                                  "#4ade80" if resolved.available else "#f59e0b")
                     self._render()
-        elif cmd in ("sim","analysis","simulate"):
+
+        elif cmd == "corner":
+            if not arg:
+                self._status(f"Active corner: [{self.model_config.corner}]  ·  Usage: :corner <tt|ss|ff|sf|fs>", "#38bdf8")
+            else:
+                c_name = arg.lower()
+                self.model_config.corner = c_name
+                self._status(f"✓ Simulation corner set to: [{c_name}]", "#4ade80")
+                self._render()
+
+        elif cmd in ("models", "model"):
+            self._open_model_manager()
+
+        # Simulation
+        elif cmd in ("sim", "analysis", "simulate"):
             self._open_sim_dialog()
+        elif cmd == "run":
+            self._run_simulation()
+        elif cmd == "op":
+            self.sim_config.analysis_type = "op"
+            self._status("✓ Simulation mode set to: Operating Point (.op)", "#38bdf8")
+        elif cmd == "tran":
+            self.sim_config.analysis_type = "tran"
+            if len(args) >= 2:
+                self.sim_config.tstop = args[0]
+                self.sim_config.tstep = args[1]
+            elif len(args) == 1:
+                self.sim_config.tstop = args[0]
+            self._status(f"✓ Simulation mode set to: Transient (step={self.sim_config.tstep}, stop={self.sim_config.tstop})", "#38bdf8")
+        elif cmd == "ac":
+            self.sim_config.analysis_type = "ac"
+            if len(args) >= 4:
+                self.sim_config.ac_variation = args[0]
+                self.sim_config.ac_points = args[1]
+                self.sim_config.fstart = args[2]
+                self.sim_config.fstop = args[3]
+            self._status("✓ Simulation mode set to: AC Sweep (.ac)", "#38bdf8")
+        elif cmd == "dc":
+            self.sim_config.analysis_type = "dc"
+            if len(args) >= 4:
+                self.sim_config.dc_source = args[0]
+                self.sim_config.dc_start = args[1]
+                self.sim_config.dc_stop = args[2]
+                self.sim_config.dc_step = args[3]
+            self._status("✓ Simulation mode set to: DC Sweep (.dc)", "#38bdf8")
+        elif cmd in ("raw", "showraw"):
+            self._reveal_raw_file()
+
+        # Files & Export
         elif cmd == "save":
-            self._dialog_save()
-        elif cmd == "load":
-            self._dialog_load()
-        elif cmd in ("netlist","nl","net"):
-            self._dialog_save_netlist()
-        elif cmd == "savepng":
-            self._dialog_save_image()
-        elif cmd == "savesvg":
-            self._dialog_save_svg()
-        elif cmd in ("doc","docimg","savedoc"):
-            self._dialog_save_doc_image()
-        elif cmd == "zoom":
-            try: self._zoom_to(int(arg or "100"))
-            except: self._status("[!] zoom needs a number", "#f87171")
-        elif cmd == "clear":
-            self._clear()
-        elif cmd == "help":
-            self._status(
-                "HOTKEYS  Ctrl+Z/u=undo · Ctrl+Y/U=redo · Ctrl+C/V/X=copy/paste/cut · "
-                "arrows=move · R/C/L/V/I/G=place · W=wire · Spc=rotate · F=flip · T=net-label · "
-                "E=edit · M=mouse · +/-=zoom · Del=delete  │  "
-                "COMMANDS (:)  undo redo copy paste cut · nmos pmos npn pnp · in out inout vdd vss · "
-                "sim · save · load · netlist · savepng · savesvg · doc · zoom <pct> · clear · help",
-                "#a78bfa")
+            if arg: self._save_json(arg)
+            else: self._dialog_save()
+        elif cmd in ("load", "open"):
+            if arg: self._load_json(arg)
+            else: self._dialog_load()
+        elif cmd in ("netlist", "nl", "net"):
+            if arg: self._save_netlist_to(arg)
+            else: self._dialog_save_netlist()
+        elif cmd in ("savepng", "png"):
+            if arg: self._save_raster(arg)
+            else: self._dialog_save_image()
+        elif cmd in ("savesvg", "svg"):
+            if arg: self._save_svg(arg)
+            else: self._dialog_save_svg()
+        elif cmd in ("doc", "docimg", "savedoc"):
+            if arg: self._save_doc_image(arg)
+            else: self._dialog_save_doc_image()
+        elif cmd == "export":
+            if not arg:
+                self._status("Usage: :export <png|svg|netlist|doc> [filename]", "#38bdf8")
+            elif arg.lower() in ("png", "raster"):
+                t = args[1] if len(args) > 1 else None
+                if t: self._save_raster(t)
+                else: self._dialog_save_image()
+            elif arg.lower() == "svg":
+                t = args[1] if len(args) > 1 else None
+                if t: self._save_svg(t)
+                else: self._dialog_save_svg()
+            elif arg.lower() in ("netlist", "cir"):
+                t = args[1] if len(args) > 1 else None
+                if t: self._save_netlist_to(t)
+                else: self._dialog_save_netlist()
+            elif arg.lower() in ("doc", "docimg"):
+                t = args[1] if len(args) > 1 else None
+                if t: self._save_doc_image(t)
+                else: self._dialog_save_doc_image()
+
+        # View & Navigation
+        elif cmd in ("zoom", "z"):
+            if not arg:
+                self._status(f"Zoom: {self._zoom_pct()}%  ·  Usage: :zoom <pct|+|-|fit>", "#38bdf8")
+            elif arg in ("+", "in"):
+                self._zoom(+8)
+            elif arg in ("-", "out"):
+                self._zoom(-8)
+            elif arg in ("fit", "reset", "100"):
+                self._zoom_to(100)
+            else:
+                try: self._zoom_to(int(arg.replace("%", "")))
+                except: self._status("[!] zoom needs a number, +, -, or fit", "#f87171")
+        elif cmd in ("goto", "pos", "move", "coord"):
+            if len(args) >= 2:
+                try:
+                    gx, gy = int(args[0]), int(args[1])
+                    gx = max(0, min(COLS - 1, gx))
+                    gy = max(0, min(ROWS - 1, gy))
+                    self.cursor = (gx, gy)
+                    self._scroll_to_cursor()
+                    self._render()
+                    self._status(f"Cursor moved to ({gx},{gy})", "#38bdf8")
+                except Exception:
+                    self._status("[!] goto needs coordinates: :goto <x> <y>", "#f87171")
+            else:
+                self._status("Usage: :goto <x> <y>", "#38bdf8")
+        elif cmd in ("mouse", "m"):
+            self._toggle_mouse()
+
+        # System & Help
+        elif cmd in ("quit", "exit", "q"):
+            self.root.destroy()
+        elif cmd in ("help", "?"):
+            self._status("PALETTE: :r [val] · :c [val] · :nmos [w] [l] · :wire · :sim · :run · :pdk · :undo · :save · Tab to complete", "#38bdf8")
         else:
-            self._status(f"[!] Unknown: '{cmd}' — try :help", "#f87171")
+            self._status(f"[!] Unknown: '{cmd}' — try :help or press Tab for suggestions", "#f87171")
 
     # ── JSON save / load  (primary reloadable format) ──────────────────────────
     def _save_json(self, path: str):
