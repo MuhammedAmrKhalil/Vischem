@@ -953,8 +953,52 @@ class Editor:
         self.root.after(200, self._locate_ngspice)
 
     def _update_canvas_size(self):
-        self.CW = COLS * self.GS
-        self.CH = ROWS * self.GS
+        self._update_scroll_region()
+
+    def _update_scroll_region(self):
+        """Dynamically expand scrollregion to encompass all items, cursor, and viewport."""
+        if getattr(self, "cv", None) is None:
+            self.CW = COLS * self.GS
+            self.CH = ROWS * self.GS
+            return
+
+        pad = max(2000, self.GS * 40)
+        gx_vals = [self.cursor[0], 0, 50]
+        gy_vals = [self.cursor[1], 0, 50]
+        for c in self.comps:
+            gx_vals.append(c.gx)
+            gy_vals.append(c.gy)
+        for w in self.wires:
+            if hasattr(w, "x1"):
+                gx_vals.extend([w.x1, w.x2])
+                gy_vals.extend([w.y1, w.y2])
+            elif isinstance(w, (tuple, list)) and len(w) == 2:
+                gx_vals.extend([w[0][0], w[1][0]])
+                gy_vals.extend([w[0][1], w[1][1]])
+        for wl in self.wlbls:
+            gx_vals.append(wl.gx)
+            gy_vals.append(wl.gy)
+
+        elem_x0 = min(gx_vals) * self.GS
+        elem_x1 = max(gx_vals) * self.GS
+        elem_y0 = min(gy_vals) * self.GS
+        elem_y1 = max(gy_vals) * self.GS
+
+        vx0 = self.cv.canvasx(0)
+        vy0 = self.cv.canvasy(0)
+        w_vis = max(self.cv.winfo_width(), 800)
+        h_vis = max(self.cv.winfo_height(), 600)
+        vx1 = self.cv.canvasx(w_vis)
+        vy1 = self.cv.canvasy(h_vis)
+
+        bx0 = min(elem_x0, vx0) - pad
+        by0 = min(elem_y0, vy0) - pad
+        bx1 = max(elem_x1, vx1) + pad
+        by1 = max(elem_y1, vy1) + pad
+
+        self.cv.config(scrollregion=(bx0, by0, bx1, by1))
+        self.CW = max(1, int(bx1 - bx0))
+        self.CH = max(1, int(by1 - by0))
 
     def _zoom_pct(self):
         return round(self.GS / GS_DEFAULT * 100)
@@ -1074,13 +1118,22 @@ class Editor:
 
         self.cv = tk.Canvas(cf,
             width=min(self.CW, 1300), height=min(self.CH, 820),
-            scrollregion=(0, 0, self.CW, self.CH),
+            scrollregion=(-4000, -4000, 8000, 8000),
             bg=BG, highlightthickness=1, highlightbackground=BORDER,
             cursor="none",
             xscrollcommand=self.hbar.set, yscrollcommand=self.vbar.set)
         self.cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.hbar.config(command=self.cv.xview)
-        self.vbar.config(command=self.cv.yview)
+
+        def _on_xscroll(*args):
+            self.cv.xview(*args)
+            self._render()
+
+        def _on_yscroll(*args):
+            self.cv.yview(*args)
+            self._render()
+
+        self.hbar.config(command=_on_xscroll)
+        self.vbar.config(command=_on_yscroll)
         self.cv.focus_set()
 
         # Note: Netlist viewer is now a dedicated separate Toplevel window (_open_netlist_window)
@@ -1269,10 +1322,14 @@ class Editor:
         cv.bind("<Shift-Button-4>",     lambda e: cv.xview_scroll(-2, "units"))
         cv.bind("<Shift-Button-5>",     lambda e: cv.xview_scroll(+2, "units"))
 
-        # Middle-click drag to pan canvas
+        # Middle-click drag & Alt+Left-drag to pan canvas
         cv.bind("<Button-2>",           self._on_pan_start)
         cv.bind("<B2-Motion>",          self._on_pan_move)
         cv.bind("<ButtonRelease-2>",    self._on_pan_end)
+        cv.bind("<Alt-Button-1>",       self._on_pan_start)
+        cv.bind("<Alt-B1-Motion>",      self._on_pan_move)
+        cv.bind("<Alt-ButtonRelease-1>",self._on_pan_end)
+        cv.bind("<Configure>",          lambda e: self._render())
         cv.bind("<Enter>",              self._on_canvas_enter)
 
         for w in (cv, self.root):
@@ -1386,8 +1443,8 @@ class Editor:
         self.cv.focus_set()
         mx = self.cv.canvasx(ev.x)
         my = self.cv.canvasy(ev.y)
-        cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
-        cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+        cx = int(round(mx / self.GS))
+        cy = int(round(my / self.GS))
 
         if self.mode == "WIRE":
             self.cursor = [cx, cy]
@@ -1491,8 +1548,8 @@ class Editor:
     def _on_drag(self, ev):
         mx = self.cv.canvasx(ev.x)
         my = self.cv.canvasy(ev.y)
-        cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
-        cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+        cx = int(round(mx / self.GS))
+        cy = int(round(my / self.GS))
 
         if self.mode == "WIRE":
             if [cx, cy] != self.cursor:
@@ -1517,8 +1574,8 @@ class Editor:
                 return
             self._drag_moved = True
 
-        new_gx = max(1, min(COLS - 2, int(round(mx / self.GS))))
-        new_gy = max(1, min(ROWS - 2, int(round(my / self.GS))))
+        new_gx = int(round(mx / self.GS))
+        new_gy = int(round(my / self.GS))
 
         target = self._drag_target
         if (new_gx, new_gy) == (target.gx, target.gy):
@@ -1529,10 +1586,6 @@ class Editor:
             dx = new_gx - target.gx
             dy = new_gy - target.gy
             if dx == 0 and dy == 0:
-                return
-
-            # Check bounds for all selected components
-            if any(not (1 <= c.gx + dx <= COLS - 2 and 1 <= c.gy + dy <= ROWS - 2) for c in self.selected_comps):
                 return
 
             # Check collisions with unselected components
@@ -1722,8 +1775,8 @@ class Editor:
         """Update cursor position, appearance on hover, and wire guide in WIRE mode."""
         mx = self.cv.canvasx(ev.x)
         my = self.cv.canvasy(ev.y)
-        cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
-        cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+        cx = int(round(mx / self.GS))
+        cy = int(round(my / self.GS))
 
         # If currently dragging an item, drag handler manages motion
         if self._drag_moved:
@@ -1823,10 +1876,12 @@ class Editor:
         dirs = {"up":(0,-1),"down":(0,1),"left":(-1,0),"right":(1,0)}
         if k in dirs and self.mode in ("NORMAL","WIRE","MOUSE"):
             dx, dy = dirs[k]
-            self.cursor[0] = max(0, min(COLS-1, self.cursor[0]+dx))
-            self.cursor[1] = max(0, min(ROWS-1, self.cursor[1]+dy))
+            self.cursor[0] += dx
+            self.cursor[1] += dy
+            self._update_scroll_region()
             self._scroll_to_cursor()
-            self._render(); return
+            self._render()
+            return "break"
 
         if ev.char in ("+","="): self._zoom(+8); return
         if ev.char in ("-","_"): self._zoom(-8); return
@@ -2657,8 +2712,7 @@ class Editor:
             gy = my / old_gs
 
             self.GS = new_gs
-            self._update_canvas_size()
-            self.cv.config(scrollregion=(0, 0, self.CW, self.CH))
+            self._update_scroll_region()
 
             new_mx = gx * new_gs
             new_my = gy * new_gs
@@ -2666,40 +2720,123 @@ class Editor:
             target_left = new_mx - ev.x
             target_top  = new_my - ev.y
 
-            fx = max(0.0, min(1.0, target_left / max(1, self.CW)))
-            fy = max(0.0, min(1.0, target_top  / max(1, self.CH)))
-            self.cv.xview_moveto(fx)
-            self.cv.yview_moveto(fy)
+            sr_str = self.cv.cget("scrollregion")
+            if sr_str:
+                bx0, by0, bx1, by1 = [float(v) for v in sr_str.split()]
+                fx = max(0.0, min(1.0, (target_left - bx0) / max(1.0, bx1 - bx0)))
+                fy = max(0.0, min(1.0, (target_top  - by0) / max(1.0, by1 - by0)))
+                self.cv.xview_moveto(fx)
+                self.cv.yview_moveto(fy)
 
             # Move grid cursor to cell under mouse
-            cx = max(0, min(COLS - 1, int(round(new_mx / new_gs))))
-            cy = max(0, min(ROWS - 1, int(round(new_my / new_gs))))
+            cx = int(round(new_mx / new_gs))
+            cy = int(round(new_my / new_gs))
             self.cursor = [cx, cy]
 
             self._render()
         else:
             self.GS = new_gs
-            self._update_canvas_size()
-            self.cv.config(scrollregion=(0, 0, self.CW, self.CH))
+            self._update_scroll_region()
             self._scroll_to_cursor()
             self._render()
 
     def _zoom_to(self, pct):
-        self.GS = max(GS_MIN, min(GS_MAX, round(GS_DEFAULT*pct/100)))
-        self._update_canvas_size()
-        self.cv.config(scrollregion=(0,0,self.CW,self.CH))
+        self.GS = max(GS_MIN, min(GS_MAX, round(GS_DEFAULT * pct / 100)))
+        self._update_scroll_region()
+        self._scroll_to_cursor()
         self._render()
 
+    def _zoom_fit(self):
+        """Fit all schematic elements into view and center the canvas."""
+        gx_vals = [c.gx for c in self.comps]
+        gy_vals = [c.gy for c in self.comps]
+        for w in self.wires:
+            if hasattr(w, "x1"):
+                gx_vals.extend([w.x1, w.x2])
+                gy_vals.extend([w.y1, w.y2])
+            elif isinstance(w, (tuple, list)) and len(w) == 2:
+                gx_vals.extend([w[0][0], w[1][0]])
+                gy_vals.extend([w[0][1], w[1][1]])
+        for wl in self.wlbls:
+            gx_vals.append(wl.gx)
+            gy_vals.append(wl.gy)
+
+        if not gx_vals:
+            self._zoom_to(100)
+            self.cursor = [0, 0]
+            self._scroll_to_cursor()
+            self._status("Zoom fit (empty schematic → 100% centered at origin)", "#38bdf8")
+            return
+
+        min_gx = min(gx_vals) - 2
+        max_gx = max(gx_vals) + 2
+        min_gy = min(gy_vals) - 2
+        max_gy = max(gy_vals) + 2
+
+        w_vis = max(self.cv.winfo_width(), 800)
+        h_vis = max(self.cv.winfo_height(), 600)
+
+        grid_w = max(1, max_gx - min_gx)
+        grid_h = max(1, max_gy - min_gy)
+
+        fit_gs_x = w_vis / grid_w
+        fit_gs_y = h_vis / grid_h
+        target_gs = max(GS_MIN, min(GS_MAX, int(min(fit_gs_x, fit_gs_y))))
+
+        self.GS = target_gs
+        self._update_scroll_region()
+
+        # Center view around the center of the elements
+        center_gx = (min_gx + max_gx) / 2.0
+        center_gy = (min_gy + max_gy) / 2.0
+        center_px_x = center_gx * self.GS
+        center_px_y = center_gy * self.GS
+
+        target_left = center_px_x - w_vis / 2.0
+        target_top  = center_px_y - h_vis / 2.0
+
+        sr = [float(v) for v in self.cv.cget("scrollregion").split()]
+        bx0, by0, bx1, by1 = sr[0], sr[1], sr[2], sr[3]
+        fx = max(0.0, min(1.0, (target_left - bx0) / max(1.0, bx1 - bx0)))
+        fy = max(0.0, min(1.0, (target_top  - by0) / max(1.0, by1 - by0)))
+        self.cv.xview_moveto(fx)
+        self.cv.yview_moveto(fy)
+
+        self._render()
+        self._status(f"✓ Zoom fit: {self._zoom_pct()}%", "#4ade80")
+
     def _scroll_to_cursor(self):
-        cx, cy = self.cursor[0]*self.GS, self.cursor[1]*self.GS
-        x0,x1 = self.cv.xview(); y0,y1 = self.cv.yview()
-        left,right = x0*self.CW, x1*self.CW
-        top,bottom = y0*self.CH, y1*self.CH
-        mg = self.GS*1.5
-        if cx < left  +mg: self.cv.xview_scroll(-1,"units")
-        if cx > right -mg: self.cv.xview_scroll(+1,"units")
-        if cy < top   +mg: self.cv.yview_scroll(-1,"units")
-        if cy > bottom-mg: self.cv.yview_scroll(+1,"units")
+        cx, cy = self.cursor[0] * self.GS, self.cursor[1] * self.GS
+        left   = self.cv.canvasx(0)
+        top    = self.cv.canvasy(0)
+        w_vis  = self.cv.winfo_width() or 800
+        h_vis  = self.cv.winfo_height() or 600
+        right  = left + w_vis
+        bottom = top  + h_vis
+        mg = self.GS * 1.5
+
+        dx = 0
+        dy = 0
+        if cx < left + mg:
+            dx = (cx - mg) - left
+        elif cx > right - mg:
+            dx = (cx + mg) - right
+
+        if cy < top + mg:
+            dy = (cy - mg) - top
+        elif cy > bottom - mg:
+            dy = (cy + mg) - bottom
+
+        if dx != 0 or dy != 0:
+            sr_str = self.cv.cget("scrollregion")
+            if sr_str:
+                bx0, by0, bx1, by1 = [float(v) for v in sr_str.split()]
+                new_left = left + dx
+                new_top  = top + dy
+                fx = max(0.0, min(1.0, (new_left - bx0) / max(1.0, bx1 - bx0)))
+                fy = max(0.0, min(1.0, (new_top  - by0) / max(1.0, by1 - by0)))
+                self.cv.xview_moveto(fx)
+                self.cv.yview_moveto(fy)
 
     def _start_edit(self):
         """E key — open type-aware Properties dialog for the component at cursor."""
@@ -4395,7 +4532,9 @@ class Editor:
                 self._zoom(+8)
             elif arg in ("-", "out"):
                 self._zoom(-8)
-            elif arg in ("fit", "reset", "100"):
+            elif arg in ("fit", "all"):
+                self._zoom_fit()
+            elif arg in ("reset", "100"):
                 self._zoom_to(100)
             else:
                 try: self._zoom_to(int(arg.replace("%", "")))
@@ -4404,9 +4543,8 @@ class Editor:
             if len(args) >= 2:
                 try:
                     gx, gy = int(args[0]), int(args[1])
-                    gx = max(0, min(COLS - 1, gx))
-                    gy = max(0, min(ROWS - 1, gy))
-                    self.cursor = (gx, gy)
+                    self.cursor = [gx, gy]
+                    self._update_scroll_region()
                     self._scroll_to_cursor()
                     self._render()
                     self._status(f"Cursor moved to ({gx},{gy})", "#38bdf8")
@@ -4523,23 +4661,50 @@ class Editor:
     # ── SVG export ─────────────────────────────────────────────────────────────
     def _save_svg(self, path: str):
         GS = self.GS
-        W, H = self.CW, self.CH
         dot_r  = max(1.0, GS/48)
         ww     = max(1.5, GS/40)
         jr     = max(3.0, GS/16)
         fs_lbl = max(7, GS//7)
         fs_val = max(6, GS//9)
 
+        # Compute tight bounding box of schematic elements
+        gx_vals = [c.gx for c in self.comps]
+        gy_vals = [c.gy for c in self.comps]
+        for w in self.wires:
+            if hasattr(w, "x1"):
+                gx_vals.extend([w.x1, w.x2])
+                gy_vals.extend([w.y1, w.y2])
+            elif isinstance(w, (tuple, list)) and len(w) == 2:
+                gx_vals.extend([w[0][0], w[1][0]])
+                gy_vals.extend([w[0][1], w[1][1]])
+        for wl in self.wlbls:
+            gx_vals.append(wl.gx)
+            gy_vals.append(wl.gy)
+
+        if not gx_vals:
+            min_gx, max_gx = 0, 20
+            min_gy, max_gy = 0, 20
+        else:
+            min_gx = min(gx_vals) - 2
+            max_gx = max(gx_vals) + 2
+            min_gy = min(gy_vals) - 2
+            max_gy = max(gy_vals) + 2
+
+        svg_x = min_gx * GS
+        svg_y = min_gy * GS
+        W = (max_gx - min_gx) * GS
+        H = (max_gy - min_gy) * GS
+
         L = []
         L.append('<?xml version="1.0" encoding="UTF-8"?>')
         L.append(f'<svg xmlns="http://www.w3.org/2000/svg" '
-                 f'width="{W}" height="{H}" viewBox="0 0 {W} {H}">')
-        L.append(f'<rect width="{W}" height="{H}" fill="{BG}"/>')
+                 f'width="{W}" height="{H}" viewBox="{svg_x} {svg_y} {W} {H}">')
+        L.append(f'<rect x="{svg_x}" y="{svg_y}" width="{W}" height="{H}" fill="{BG}"/>')
 
         # Grid dots
         L.append('<g id="grid">')
-        for r in range(ROWS+1):
-            for c in range(COLS+1):
+        for r in range(min_gy, max_gy + 1):
+            for c in range(min_gx, max_gx + 1):
                 L.append(f'<circle cx="{c*GS:.1f}" cy="{r*GS:.1f}" '
                          f'r="{dot_r:.1f}" fill="{GRID_DOT}"/>')
         L.append('</g>')
@@ -5145,13 +5310,32 @@ class Editor:
         wire_w = max(1.5, GS/40)
         junc_r = max(3,   GS/16)
 
-        # Grid dots (skipped in documentation mode — clean page, no grid)
+        # Infinite Grid dots (viewport-culled for 60fps performance)
         if not doc_mode:
-            for r in range(ROWS+1):
-                for c in range(COLS+1):
-                    x, y = c*GS, r*GS
-                    cv.create_oval(x-dot_r,y-dot_r,x+dot_r,y+dot_r,
-                                   fill=GRID_DOT, outline="")
+            w_vis = max(cv.winfo_width(), 1200)
+            h_vis = max(cv.winfo_height(), 800)
+            vx0 = cv.canvasx(0)
+            vy0 = cv.canvasy(0)
+            vx1 = cv.canvasx(w_vis)
+            vy1 = cv.canvasy(h_vis)
+
+            c_start = int(vx0 // GS) - 1
+            c_end   = int(vx1 // GS) + 2
+            r_start = int(vy0 // GS) - 1
+            r_end   = int(vy1 // GS) + 2
+
+            for r in range(r_start, r_end):
+                for c in range(c_start, c_end):
+                    x, y = c * GS, r * GS
+                    if c == 0 and r == 0:
+                        # Highlight coordinate origin (0, 0)
+                        cv.create_oval(x - dot_r * 2.2, y - dot_r * 2.2,
+                                       x + dot_r * 2.2, y + dot_r * 2.2,
+                                       fill="#38bdf8", outline="")
+                    else:
+                        cv.create_oval(x - dot_r, y - dot_r,
+                                       x + dot_r, y + dot_r,
+                                       fill=GRID_DOT, outline="")
 
         # Wires
         for w in self.wires:

@@ -51,8 +51,10 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | **Double Click** | Open the type-aware Properties dialog for the clicked component (equivalent to pressing `E`) |
 | **Right Click** | Rotate the clicked component 90° clockwise (or cancel active wire routing in Wire mode) |
 | **Interactive Wiring** | In Wire mode (`W`), the routing preview dynamically follows the mouse; left-clicking places vertices |
-| **Scroll Wheel** | Scroll canvas vertically (`Shift + Scroll` for horizontal) |
-| **Ctrl + Scroll Wheel** | Zoom in / out smoothly |
+| **Mouse Wheel** | Smooth zoom in / out centered dynamically at the mouse pointer position |
+| **Middle Click + Drag** | Smoothly pan across the infinite canvas in any direction |
+| **Alt + Left Drag** | Alternative pan shortcut for laptops and trackpads |
+| **Shift + Scroll Wheel** | Scroll canvas horizontally |
 
 ---
 
@@ -83,9 +85,23 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | `+ / -` | Zoom in / out |
 | `Mouse Wheel` | Zoom in / out centered at mouse pointer |
 | `Middle Click + Drag` | Pan schematic canvas |
+| `Alt + Left Drag` | Pan schematic canvas (laptop trackpad friendly) |
 | `Shift + Wheel` | Scroll canvas horizontally |
 | `Del` | Delete selected element(s) or item at cursor |
 | `:` / `Ctrl + P` | Open modern Command Palette |
+
+---
+
+## Infinite Canvas & Smooth Navigation
+
+Vischem features an unbounded, auto-expanding virtual 2D canvas:
+- **Infinite Virtual Workspace**: Design circuits of any size or complexity without artificial grid boundary constraints. Coordinates `(X, Y)` can extend into negative or positive space seamlessly.
+- **Dynamic Scrollregion**: The workspace bounds automatically expand as elements are placed, moved, or viewed.
+- **Viewport-Culled Grid**: Grid dots render only within the visible viewport, maintaining a crisp 60 FPS performance regardless of virtual canvas scale.
+- **Coordinate Origin Indicator**: The `(0, 0)` origin dot is highlighted in bright cyan (`#38bdf8`) with an enhanced radius for intuitive orientation.
+- **Fluid Panning & Zooming**: Pan freely using middle-click drag or `Alt + Left-drag`. Zoom smoothly centered at the mouse cursor using the mouse wheel or `+` / `-`.
+- **Zoom Fit (`:zoom fit` / `:z fit`)**: Instantly re-center and fit the entire schematic into view.
+- **Smart SVG Export**: Automatically computes a tight bounding box around actual circuit components and wires instead of exporting empty space.
 
 ---
 
