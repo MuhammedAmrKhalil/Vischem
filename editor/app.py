@@ -793,7 +793,7 @@ class Editor:
             width=min(self.CW, 1300), height=min(self.CH, 820),
             scrollregion=(0, 0, self.CW, self.CH),
             bg=BG, highlightthickness=1, highlightbackground=BORDER,
-            cursor="crosshair",
+            cursor="none",
             xscrollcommand=self.hbar.set, yscrollcommand=self.vbar.set)
         self.cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.hbar.config(command=self.cv.xview)
@@ -1024,6 +1024,7 @@ class Editor:
         cv.bind("<Button-5>",           lambda e: cv.yview_scroll(+1, "units"))
         cv.bind("<Shift-MouseWheel>",   self._on_wheel_x)
         cv.bind("<Control-MouseWheel>", self._on_ctrl_wheel)
+        cv.bind("<Enter>",              self._on_canvas_enter)
 
         for w in (cv, self.root):
             w.bind("<Control-z>",       lambda e: (self._undo(), "break")[1])
@@ -1038,6 +1039,12 @@ class Editor:
             w.bind("<Control-V>",       lambda e: (self._paste(), "break")[1])
             w.bind("<Control-x>",       lambda e: (self._cut(), "break")[1])
             w.bind("<Control-X>",       lambda e: (self._cut(), "break")[1])
+
+    def _on_canvas_enter(self, ev=None):
+        try:
+            self.cv.config(cursor="none")
+        except Exception:
+            pass
 
     # ── Mouse Interaction & Drag-and-Drop Helpers ──────────────────────────────
     def _get_comp_pins(self, comp) -> list[tuple[int, int]]:
@@ -1132,19 +1139,18 @@ class Editor:
         self._render()
 
     def _on_drag(self, ev):
+        mx = self.cv.canvasx(ev.x)
+        my = self.cv.canvasy(ev.y)
+        cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
+        cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
+
         if self.mode == "WIRE":
-            mx = self.cv.canvasx(ev.x)
-            my = self.cv.canvasy(ev.y)
-            cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
-            cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
             if [cx, cy] != self.cursor:
                 self.cursor = [cx, cy]
                 self._render()
             return
 
         if not self._drag_target:
-            cx = max(0, min(COLS - 1, int(round(mx / self.GS))))
-            cy = max(0, min(ROWS - 1, int(round(my / self.GS))))
             if [cx, cy] != self.cursor:
                 self.cursor = [cx, cy]
                 self._render()
@@ -1154,13 +1160,7 @@ class Editor:
             if math.hypot(ev.x - self._drag_press_x, ev.y - self._drag_press_y) < 4:
                 return
             self._drag_moved = True
-            try:
-                self.cv.config(cursor="fleur")
-            except Exception:
-                pass
 
-        mx = self.cv.canvasx(ev.x)
-        my = self.cv.canvasy(ev.y)
         new_gx = max(1, min(COLS - 2, int(round(mx / self.GS))))
         new_gy = max(1, min(ROWS - 2, int(round(my / self.GS))))
 
@@ -1203,7 +1203,7 @@ class Editor:
 
     def _on_release(self, ev):
         try:
-            self.cv.config(cursor="")
+            self.cv.config(cursor="none")
         except Exception:
             pass
         if self._drag_target and self._drag_moved:
@@ -1263,14 +1263,9 @@ class Editor:
         if self._drag_moved:
             return
 
-        # Update hover cursor appearance over clickable/draggable objects
-        c = self._find_comp_at(mx, my)
-        wl = self._find_wlbl_at(mx, my) if not c else None
+        # Ensure OS mouse cursor stays hidden so only the EDA grid cursor is visible
         try:
-            if c or wl:
-                self.cv.config(cursor="hand2")
-            else:
-                self.cv.config(cursor="")
+            self.cv.config(cursor="none")
         except Exception:
             pass
 
