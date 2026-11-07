@@ -458,6 +458,32 @@ class SimConfig:
         a = ANALYSES[self.analysis]
         return a["spice"](self.params[self.analysis])
 
+    @property
+    def analysis_type(self) -> str:
+        return self.analysis
+
+    @analysis_type.setter
+    def analysis_type(self, val: str):
+        self.analysis = val.upper()
+
+    @property
+    def tstep(self) -> str:
+        return self.params.get("TRAN", ["1n", "1u", "0"])[0]
+
+    @tstep.setter
+    def tstep(self, val: str):
+        if "TRAN" in self.params:
+            self.params["TRAN"][0] = val
+
+    @property
+    def tstop(self) -> str:
+        return self.params.get("TRAN", ["1n", "1u", "0"])[1]
+
+    @tstop.setter
+    def tstop(self, val: str):
+        if "TRAN" in self.params:
+            self.params["TRAN"][1] = val
+
     def to_dict(self):
         return {"analysis": self.analysis, "params": self.params}
 
@@ -729,6 +755,14 @@ class Editor:
             if resolved:
                 self._model_names_cache = dict(resolved.models)
         self._netlist_visible = False
+        self._netlist_win     : tk.Toplevel | None = None
+        self._last_netlist_sig: tuple | None = None
+        self.netlist_frame    = None   # backward-compatibility reference
+        self.nl_text          = None
+        self.nl_warn          = None
+        self.nl_nets          = None
+        self.nl_status        = None
+        self.nl_pdk_chip      = None
         self._last_result     = None
         self._last_dir        = os.path.expanduser("~")
         self._current_file    : str | None = None   # path of last saved/loaded .json
@@ -875,54 +909,8 @@ class Editor:
         self.vbar.config(command=self.cv.yview)
         self.cv.focus_set()
 
-        # netlist panel (hidden by default)
-        self.netlist_frame = tk.Frame(self.workspace, bg=PANEL_BG, bd=1, relief="solid", highlightthickness=1, highlightbackground=BORDER, width=420)
-
-        nlh = tk.Frame(self.netlist_frame, bg=PANEL_ALT, pady=4)
-        nlh.pack(fill=tk.X)
-        tk.Label(nlh, text="  SPICE Netlist", bg=PANEL_ALT, fg="#cbd5e1",
-            font=("Courier", 9, "bold")).pack(side=tk.LEFT)
-        tk.Button(nlh, text="Rebuild", command=self._rebuild_netlist,
-            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
-            activeforeground=BTN_ACTIVE_FG, relief="flat", font=("Courier", 8, "bold"),
-            cursor="hand2", padx=6).pack(side=tk.RIGHT, padx=4)
-        tk.Button(nlh, text="Save .cir",
-            command=self._dialog_save_netlist,
-            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
-            activeforeground=BTN_ACTIVE_FG, relief="flat", font=("Courier", 8, "bold"),
-            cursor="hand2", padx=6).pack(side=tk.RIGHT, padx=2)
-
-        self.nl_warn = tk.Label(self.netlist_frame, text="",
-            bg="#2a1f10", fg="#fbbf24",
-            font=("Courier", 7), anchor="w", padx=6, wraplength=400)
-        self.nl_warn.pack(fill=tk.X)
-
-        self.nl_nets = tk.Label(self.netlist_frame, text="",
-            bg=PANEL_BG, fg="#64748b",
-            font=("Courier", 7), anchor="w", padx=6)
-        self.nl_nets.pack(fill=tk.X)
-
-        nl_tf = tk.Frame(self.netlist_frame, bg=PANEL_BG)
-        nl_tf.pack(fill=tk.BOTH, expand=True)
-        nl_vsb = tk.Scrollbar(nl_tf, orient=tk.VERTICAL, bg=PANEL_BG, troughcolor=BORDER)
-        nl_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        nl_hsb = tk.Scrollbar(nl_tf, orient=tk.HORIZONTAL, bg=PANEL_BG, troughcolor=BORDER)
-        nl_hsb.pack(side=tk.BOTTOM, fill=tk.X)
-        self.nl_text = tk.Text(nl_tf,
-            bg="#12131a", fg="#e2e8f0", font=("Courier", 9),
-            insertbackground=CURSOR_C, selectbackground="#1e3a5f",
-            relief="flat", bd=0, wrap=tk.NONE, state=tk.DISABLED,
-            yscrollcommand=nl_vsb.set, xscrollcommand=nl_hsb.set)
-        self.nl_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        nl_vsb.config(command=self.nl_text.yview)
-        nl_hsb.config(command=self.nl_text.xview)
-        self.nl_text.tag_config("comment",  foreground="#64748b")
-        self.nl_text.tag_config("element",  foreground="#f1f5f9")
-        self.nl_text.tag_config("net",      foreground="#38bdf8")
-        self.nl_text.tag_config("dot",      foreground="#c084fc")
-        self.nl_text.tag_config("warning",  foreground="#fbbf24")
-        self.nl_text.tag_config("value",    foreground="#67e8f9")
-        self.nl_text.tag_config("end",      foreground="#4ade80")
+        # Note: Netlist viewer is now a dedicated separate Toplevel window (_open_netlist_window)
+        self.netlist_frame = None
 
         # ── Simulation log panel (hidden by default) ───────────────────────────
         self.sim_log_frame = tk.Frame(self.workspace, bg=PANEL_BG, bd=1, relief="solid", highlightthickness=1, highlightbackground=BORDER, width=440)
@@ -3734,7 +3722,7 @@ class Editor:
             else: self._dialog_load()
         elif cmd in ("netlist", "nl", "net"):
             if arg: self._save_netlist_to(arg)
-            else: self._dialog_save_netlist()
+            else: self._toggle_netlist_panel()
         elif cmd in ("savepng", "png"):
             if arg: self._save_raster(arg)
             else: self._dialog_save_image()
@@ -4245,21 +4233,184 @@ class Editor:
         except Exception as e:
             self._status(f"[!] Cannot open folder: {e}", "#f87171")
 
-    def _toggle_netlist_panel(self):
-        self._netlist_visible = not self._netlist_visible
-        if self._netlist_visible:
-            self.netlist_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(4,0))
-            self.netlist_frame.config(width=420)
+    # ── Separate Netlist Viewer Window ──────────────────────────────────────────
+    def _open_netlist_window(self):
+        """Open or focus the separate Netlist viewer window."""
+        if getattr(self, "_netlist_win", None) and self._netlist_win.winfo_exists():
+            self._netlist_win.lift()
+            self._netlist_win.focus_set()
             self._rebuild_netlist()
-            self.btn_netlist.config(bg=BTN_ACTIVE_BG, fg=BTN_ACTIVE_FG)
-        else:
-            self.netlist_frame.pack_forget()
+            return
+
+        win = tk.Toplevel(self.root)
+        self._netlist_win = win
+        self._netlist_visible = True
+        win.title("Vischem  —  SPICE Netlist Viewer")
+        win.configure(bg=PANEL_BG)
+        win.minsize(440, 320)
+
+        # Smart positioning alongside the main schematic window
+        self.root.update_idletasks()
+        rx = self.root.winfo_rootx() + self.root.winfo_width() + 10
+        ry = self.root.winfo_rooty()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        w, h = 600, 660
+        if rx + w > sw:
+            rx = max(20, self.root.winfo_rootx() + 40)
+            ry = max(20, self.root.winfo_rooty() + 40)
+        win.geometry(f"{w}x{h}+{rx}+{ry}")
+
+        # Toolbar header frame
+        nlh = tk.Frame(win, bg=PANEL_ALT, pady=5, padx=8)
+        nlh.pack(fill=tk.X)
+
+        tk.Label(nlh, text="SPICE Netlist", bg=PANEL_ALT, fg="#cbd5e1",
+                 font=("Courier", 10, "bold")).pack(side=tk.LEFT)
+
+        # PDK chip
+        cur_pdk = getattr(self.model_config, "pdk_name", "")
+        pdk_text = f"PDK: {cur_pdk.upper()} [{getattr(self.model_config, 'corner', 'tt')}]" if cur_pdk else "Inline L1"
+        self.nl_pdk_chip = tk.Label(nlh, text=f" [{pdk_text}] ", bg="#232535", fg="#38bdf8",
+                                    font=("Courier", 8, "bold"), padx=4, pady=1)
+        self.nl_pdk_chip.pack(side=tk.LEFT, padx=(8, 0))
+
+        # Action Buttons
+        tk.Button(nlh, text="Close",
+                  command=self._close_netlist_win,
+                  bg=BTN_BG, fg="#94a3b8", activebackground=BTN_ACTIVE_BG,
+                  activeforeground="#ffffff", relief="flat", font=("Courier", 8, "bold"),
+                  cursor="hand2", padx=8).pack(side=tk.RIGHT, padx=(4, 0))
+
+        tk.Button(nlh, text="Save .cir",
+                  command=self._dialog_save_netlist,
+                  bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+                  activeforeground=BTN_ACTIVE_FG, relief="flat", font=("Courier", 8, "bold"),
+                  cursor="hand2", padx=8).pack(side=tk.RIGHT, padx=4)
+
+        self.btn_nl_copy = tk.Button(nlh, text="Copy",
+                                     command=self._copy_netlist_to_clipboard,
+                                     bg=BTN_BG, fg="#38bdf8", activebackground=BTN_ACTIVE_BG,
+                                     activeforeground="#ffffff", relief="flat", font=("Courier", 8, "bold"),
+                                     cursor="hand2", padx=8)
+        self.btn_nl_copy.pack(side=tk.RIGHT, padx=4)
+
+        tk.Button(nlh, text="Rebuild", command=self._rebuild_netlist,
+                  bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG, activebackground=BTN_PRIMARY_ACT,
+                  activeforeground="#ffffff", relief="flat", font=("Courier", 8, "bold"),
+                  cursor="hand2", padx=8).pack(side=tk.RIGHT, padx=4)
+
+        # Warnings label
+        self.nl_warn = tk.Label(win, text="",
+                                bg="#2a1f10", fg="#fbbf24",
+                                font=("Courier", 8), anchor="w", padx=8, pady=3, wraplength=560)
+        self.nl_warn.pack(fill=tk.X)
+
+        # Nets summary label
+        self.nl_nets = tk.Label(win, text="",
+                                bg=PANEL_BG, fg="#64748b",
+                                font=("Courier", 8), anchor="w", padx=8, pady=2)
+        self.nl_nets.pack(fill=tk.X)
+
+        # Text area container with scrollbars
+        nl_tf = tk.Frame(win, bg=PANEL_BG)
+        nl_tf.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
+        nl_vsb = tk.Scrollbar(nl_tf, orient=tk.VERTICAL, bg=PANEL_BG, troughcolor=BORDER)
+        nl_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        nl_hsb = tk.Scrollbar(nl_tf, orient=tk.HORIZONTAL, bg=PANEL_BG, troughcolor=BORDER)
+        nl_hsb.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.nl_text = tk.Text(nl_tf,
+                               bg="#12131a", fg="#e2e8f0", font=("Courier", 10),
+                               insertbackground=CURSOR_C, selectbackground="#1e3a5f",
+                               relief="flat", bd=0, wrap=tk.NONE,
+                               yscrollcommand=nl_vsb.set, xscrollcommand=nl_hsb.set)
+        self.nl_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        nl_vsb.config(command=self.nl_text.yview)
+        nl_hsb.config(command=self.nl_text.xview)
+
+        # Syntax tags
+        self.nl_text.tag_config("comment",  foreground="#64748b")
+        self.nl_text.tag_config("control",  foreground="#a78bfa")
+        self.nl_text.tag_config("element",  foreground="#f1f5f9")
+        self.nl_text.tag_config("net",      foreground="#38bdf8")
+        self.nl_text.tag_config("dot",      foreground="#c084fc")
+        self.nl_text.tag_config("warning",  foreground="#fbbf24")
+        self.nl_text.tag_config("value",    foreground="#67e8f9")
+        self.nl_text.tag_config("end",      foreground="#4ade80")
+
+        # Bottom info bar
+        self.nl_status = tk.Label(win, text="", bg=PANEL_ALT, fg="#64748b",
+                                  font=("Courier", 8), anchor="w", padx=8, pady=3)
+        self.nl_status.pack(fill=tk.X, side=tk.BOTTOM)
+
+        # Window protocols & bindings
+        win.protocol("WM_DELETE_WINDOW", self._close_netlist_win)
+        win.bind("<Escape>", lambda e: self._close_netlist_win())
+
+        self.btn_netlist.config(bg=BTN_ACTIVE_BG, fg=BTN_ACTIVE_FG)
+        self._rebuild_netlist()
+
+    def _close_netlist_win(self):
+        """Close the separate netlist viewer window."""
+        self._netlist_visible = False
+        if getattr(self, "_copy_timer", None):
+            try:
+                self.root.after_cancel(self._copy_timer)
+            except Exception:
+                pass
+            self._copy_timer = None
+        if getattr(self, "_netlist_win", None):
+            try:
+                self._netlist_win.destroy()
+            except Exception:
+                pass
+            self._netlist_win = None
+        self.nl_text = None
+        self.nl_warn = None
+        self.nl_nets = None
+        self.nl_status = None
+        self.nl_pdk_chip = None
+        self.btn_nl_copy = None
+        try:
             self.btn_netlist.config(bg=BTN_BG, fg=BTN_FG)
+        except Exception:
+            pass
+
+    def _copy_netlist_to_clipboard(self):
+        """Copy current netlist text to clipboard."""
+        if getattr(self, "nl_text", None):
+            txt = self.nl_text.get("1.0", tk.END).strip()
+            if txt:
+                try:
+                    self.root.clipboard_clear()
+                    self.root.clipboard_append(txt)
+                    self._status("✓ Netlist copied to clipboard", "#4ade80")
+                    if getattr(self, "btn_nl_copy", None) and self.btn_nl_copy.winfo_exists():
+                        self.btn_nl_copy.config(text="✓ Copied!")
+                        def _reset_btn():
+                            try:
+                                if getattr(self, "btn_nl_copy", None) and self.btn_nl_copy.winfo_exists():
+                                    self.btn_nl_copy.config(text="Copy")
+                            except Exception:
+                                pass
+                        self._copy_timer = self.root.after(1500, _reset_btn)
+                except Exception as e:
+                    self._status(f"[!] Clipboard error: {e}", "#f87171")
+
+    def _toggle_netlist_panel(self):
+        """Toggle the separate Netlist window."""
+        if getattr(self, "_netlist_win", None) and self._netlist_win.winfo_exists():
+            self._close_netlist_win()
+        else:
+            self._open_netlist_window()
 
     def _rebuild_netlist(self):
-        if not self._netlist_visible: return
+        if not self._netlist_visible or not getattr(self, "_netlist_win", None) or not self._netlist_win.winfo_exists():
+            return
         if not _HAS_NETLIST:
-            self._status("[!] netlist.py not found", "#f87171"); return
+            self._status("[!] netlist.py not found", "#f87171")
+            return
         result = generate_netlist(self.comps, self.wires, self.wlbls,
                                    sim_config=self.sim_config,
                                    model_config=self.model_config,
@@ -4269,17 +4420,26 @@ class Editor:
 
     def _render_netlist_panel(self, result):
         import re
+        if not getattr(self, "nl_text", None) or not getattr(self, "_netlist_win", None) or not self._netlist_win.winfo_exists():
+            return
         if result.warnings:
-            self.nl_warn.config(text="⚠  " + "  ·  ".join(result.warnings))
+            self.nl_warn.config(text="⚠  " + "  ·  ".join(result.warnings), bg="#2a1f10", fg="#fbbf24")
         else:
-            self.nl_warn.config(text="  ✓ No warnings",
-                                 fg="#4ade80", bg=PANEL_BG)
-        net_summary = "  ".join(
-            f"{k}:{len(v)}pt" for k,v in sorted(result.nets.items()))
+            self.nl_warn.config(text="  ✓ No netlist warnings", fg="#4ade80", bg=PANEL_BG)
+
+        net_summary = "  ".join(f"{k}:{len(v)}pt" for k, v in sorted(result.nets.items()))
         self.nl_nets.config(text=f"  nets: {net_summary}")
+
+        cur_pdk = getattr(self.model_config, "pdk_name", "")
+        pdk_text = f"PDK: {cur_pdk.upper()} [{getattr(self.model_config, 'corner', 'tt')}]" if cur_pdk else "Inline L1"
+        if getattr(self, "nl_pdk_chip", None):
+            self.nl_pdk_chip.config(text=f" [{pdk_text}] ")
+
         txt = self.nl_text
-        txt.config(state=tk.NORMAL); txt.delete("1.0", tk.END)
-        for line in result.netlist.splitlines():
+        txt.config(state=tk.NORMAL)
+        txt.delete("1.0", tk.END)
+        lines = result.netlist.splitlines()
+        for line in lines:
             start = txt.index(tk.END)
             txt.insert(tk.END, line + "\n")
             end = txt.index(tk.END)
@@ -4296,7 +4456,12 @@ class Editor:
                     txt.tag_add("net", f"{ls}.{m.start()}", f"{ls}.{m.end()}")
                 for m in re.finditer(r"(\d[\d.]*[kKmMuµnpfgGT]?)", line):
                     txt.tag_add("value", f"{ls}.{m.start()}", f"{ls}.{m.end()}")
-        txt.config(state=tk.DISABLED); txt.see("1.0")
+        txt.config(state=tk.DISABLED)
+        txt.see("1.0")
+
+        if getattr(self, "nl_status", None):
+            sim_info = f"Sim: {self.sim_config.analysis_type.upper()}"
+            self.nl_status.config(text=f"  {len(lines)} lines · {len(self.comps)} components · {len(self.wires)} wires · {sim_info}")
 
     def _save_netlist_to(self, path: str):
         if not _HAS_NETLIST:
@@ -4476,6 +4641,18 @@ class Editor:
                     min(bx0, bx1), min(by0, by1),
                     max(bx0, bx1), max(by0, by1),
                     fill=SEL_RECT, outline=SEL_OUT, width=1.0, dash=(4, 3))
+
+        # Real-time update for separate Netlist window if open
+        if getattr(self, "_netlist_visible", False) and getattr(self, "_netlist_win", None) and self._netlist_win.winfo_exists():
+            sig = (len(self.comps), len(self.wires), len(self.wlbls),
+                   tuple((c.uid, c.gx, c.gy, c.value, c.label, c.rot, getattr(c, "flip", False)) for c in self.comps),
+                   getattr(self.model_config, "pdk_name", ""),
+                   getattr(self.model_config, "corner", ""),
+                   getattr(self.sim_config, "analysis_type", ""),
+                   self.sim_config.spice_line())
+            if sig != getattr(self, "_last_netlist_sig", None):
+                self._last_netlist_sig = sig
+                self._rebuild_netlist()
 
         # Topbar
         self.lbl_coord.config(text=f"({self.cursor[0]},{self.cursor[1]})")
