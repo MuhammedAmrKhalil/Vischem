@@ -23,6 +23,14 @@ from dataclasses import dataclass, field
 def find_pdk_roots() -> list[str]:
     """Return all valid root directory candidates where PDKs may be located."""
     candidates = []
+
+    # Priority 1: Vischem bundled local PDK directory (e.g. Vischem/pdks or Vischem/pdk)
+    vischem_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for local_name in ("pdks", "pdk"):
+        local_p = os.path.join(vischem_root, local_name)
+        if os.path.isdir(local_p) and local_p not in candidates:
+            candidates.append(local_p)
+
     env_root = os.environ.get("PDK_ROOT")
     if env_root and os.path.isdir(env_root):
         candidates.append(os.path.abspath(env_root))

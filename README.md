@@ -212,7 +212,7 @@ Configure device models project-wide:
 
 ### Using Open-Source PDKs
 
-1. **Auto-Detection**: Vischem automatically locates installed PDKs via `$PDK_ROOT`, `~/pdk`, and standard paths.
+1. **Bundled & Auto-Detected**: Vischem bundles simulation-ready PDK model files directly inside `pdks/` (SkyWater 130nm, GlobalFoundries 180nm, and IHP SG13G2), and also automatically detects external installations via `$PDK_ROOT`, `~/pdk`, and standard paths.
 2. **Preset Selection**: Open `Models` in the toolbar, select **PDK Preset**, pick your PDK, and choose a corner (`typical`/`tt`, `ss`, `ff`, `sf`, `fs`).
 3. **Command Bar**: You can also switch PDKs directly using the command bar:
    ```
