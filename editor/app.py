@@ -13,16 +13,21 @@ HOTKEYS
   Space        Rotate 90°
   F            Flip  (horizontal mirror)
   E            Edit label → value
+  Ctrl+A       Select all elements
+  Shift+Click  Toggle selection of multiple items
+  Drag box     Marquee-select multiple elements
+  Escape       Clear selection / cancel wire
   Ctrl+Z / u   Undo
   Ctrl+Y / U   Redo
-  Ctrl+C       Copy component/label at cursor
-  Ctrl+V       Paste copied component/label
-  Ctrl+X       Cut component/label at cursor
+  Ctrl+C       Copy selected items or item at cursor
+  Ctrl+V       Paste copied items
+  Ctrl+X       Cut selected items or item at cursor
   shift + ":"  Open command dialog
 
 COMMAND DIALOG (:)
+  all / deselect       Select all / Deselect all elements
   undo / redo          Undo / Redo last schematic change
-  copy / paste / cut   Copy / Paste / Cut component or net label
+  copy / paste / cut   Copy / Paste / Cut component(s) or net label(s)
   nmos pmos npn pnp    Place transistor
   save                 File-dialog → .json / .csv / .png / .svg
   load                 File-dialog → .json / .csv
@@ -646,6 +651,16 @@ class Editor:
         self._redo_stack : list[dict] = []
         self._clipboard  : dict | None = None
 
+        # Multi-element selection
+        self.selected_comps : set[Component]  = set()
+        self.selected_wires : set[Wire]       = set()
+        self.selected_wlbls : set[WireLabel]  = set()
+        self._box_sel_active: bool            = False
+        self._box_sel_x0    : float           = 0.0
+        self._box_sel_y0    : float           = 0.0
+        self._box_sel_x1    : float           = 0.0
+        self._box_sel_y1    : float           = 0.0
+
         self.GS = GS_DEFAULT
         self._update_canvas_size()
 
@@ -1039,6 +1054,8 @@ class Editor:
             w.bind("<Control-V>",       lambda e: (self._paste(), "break")[1])
             w.bind("<Control-x>",       lambda e: (self._cut(), "break")[1])
             w.bind("<Control-X>",       lambda e: (self._cut(), "break")[1])
+            w.bind("<Control-a>",       lambda e: (self._select_all(), "break")[1])
+            w.bind("<Control-A>",       lambda e: (self._select_all(), "break")[1])
 
     def _on_canvas_enter(self, ev=None):
         try:
@@ -1091,6 +1108,44 @@ class Editor:
                 return wl
         return None
 
+    def _find_wire_at(self, canvas_x: float, canvas_y: float) -> "Wire | None":
+        """Find a wire close to (canvas_x, canvas_y)."""
+        best_w = None
+        best_d = max(8.0, self.GS * 0.18)
+        GS = self.GS
+        for w in self.wires:
+            x1, y1 = w.x1 * GS, w.y1 * GS
+            x2, y2 = w.x2 * GS, w.y2 * GS
+            dx, dy = x2 - x1, y2 - y1
+            length_sq = dx * dx + dy * dy
+            if length_sq == 0:
+                d = math.hypot(canvas_x - x1, canvas_y - y1)
+            else:
+                t = max(0.0, min(1.0, ((canvas_x - x1) * dx + (canvas_y - y1) * dy) / length_sq))
+                proj_x = x1 + t * dx
+                proj_y = y1 + t * dy
+                d = math.hypot(canvas_x - proj_x, canvas_y - proj_y)
+            if d < best_d:
+                best_d = d
+                best_w = w
+        return best_w
+
+    def has_selection(self) -> bool:
+        return bool(self.selected_comps or self.selected_wires or self.selected_wlbls)
+
+    def _clear_selection(self):
+        self.selected_comps.clear()
+        self.selected_wires.clear()
+        self.selected_wlbls.clear()
+
+    def _select_all(self):
+        self.selected_comps = set(self.comps)
+        self.selected_wires = set(self.wires)
+        self.selected_wlbls = set(self.wlbls)
+        n = len(self.comps) + len(self.wires) + len(self.wlbls)
+        self._status(f"✓ Selected all {n} items ({len(self.comps)} comps, {len(self.wires)} wires)", "#38bdf8")
+        self._render()
+
     def _on_click(self, ev):
         self.cv.focus_set()
         mx = self.cv.canvasx(ev.x)
@@ -1103,11 +1158,26 @@ class Editor:
             self._commit_wire()
             return
 
+        shift_pressed = bool(getattr(ev, "state", 0) & 0x0001)
+        ctrl_pressed  = bool(getattr(ev, "state", 0) & 0x0004)
+        is_multi_mod  = shift_pressed or ctrl_pressed
+
         c = self._find_comp_at(mx, my)
         wl = self._find_wlbl_at(mx, my) if not c else None
+        w = self._find_wire_at(mx, my) if (not c and not wl) else None
 
         if c:
             self.cursor = [c.gx, c.gy]
+            if is_multi_mod:
+                if c in self.selected_comps:
+                    self.selected_comps.remove(c)
+                else:
+                    self.selected_comps.add(c)
+            else:
+                if c not in self.selected_comps:
+                    self._clear_selection()
+                    self.selected_comps.add(c)
+
             self._drag_target = c
             self._drag_type = "COMP"
             self._drag_start_gx = c.gx
@@ -1116,9 +1186,23 @@ class Editor:
             self._drag_press_y = ev.y
             self._drag_moved = False
             self._drag_undo_snapshot = self._snapshot()
-            self._status(f"Selected {c.label} ({c.type}) — drag to move, double-click for properties", "#38bdf8")
+            n_sel = len(self.selected_comps)
+            if n_sel > 1:
+                self._status(f"Selected {n_sel} components — drag to move together", "#38bdf8")
+            else:
+                self._status(f"Selected {c.label} ({c.type}) — drag to move, double-click for properties", "#38bdf8")
         elif wl:
             self.cursor = [wl.gx, wl.gy]
+            if is_multi_mod:
+                if wl in self.selected_wlbls:
+                    self.selected_wlbls.remove(wl)
+                else:
+                    self.selected_wlbls.add(wl)
+            else:
+                if wl not in self.selected_wlbls:
+                    self._clear_selection()
+                    self.selected_wlbls.add(wl)
+
             self._drag_target = wl
             self._drag_type = "WLBL"
             self._drag_start_gx = wl.gx
@@ -1128,13 +1212,43 @@ class Editor:
             self._drag_moved = False
             self._drag_undo_snapshot = self._snapshot()
             self._status(f"Selected label '{wl.text}' — drag to move", "#38bdf8")
+        elif w:
+            self.cursor = [cx, cy]
+            if is_multi_mod:
+                if w in self.selected_wires:
+                    self.selected_wires.remove(w)
+                else:
+                    self.selected_wires.add(w)
+            else:
+                if w not in self.selected_wires:
+                    self._clear_selection()
+                    self.selected_wires.add(w)
+
+            self._drag_target = w
+            self._drag_type = "WIRE"
+            self._drag_start_gx = cx
+            self._drag_start_gy = cy
+            self._drag_press_x = ev.x
+            self._drag_press_y = ev.y
+            self._drag_moved = False
+            self._drag_undo_snapshot = self._snapshot()
+            n_w = len(self.selected_wires)
+            self._status(f"Selected {n_w} wire{'s' if n_w!=1 else ''} — drag to move", "#38bdf8")
         else:
             self.cursor = [cx, cy]
+            if not is_multi_mod:
+                self._clear_selection()
             self._drag_target = None
             self._drag_type = None
             self._drag_moved = False
             self._drag_undo_snapshot = None
             self._active_status = None
+            # Setup rubberband marquee box
+            self._box_sel_active = False
+            self._box_sel_x0 = mx
+            self._box_sel_y0 = my
+            self._box_sel_x1 = mx
+            self._box_sel_y1 = my
 
         self._render()
 
@@ -1151,7 +1265,13 @@ class Editor:
             return
 
         if not self._drag_target:
-            if [cx, cy] != self.cursor:
+            if math.hypot(ev.x - self._drag_press_x, ev.y - self._drag_press_y) >= 4:
+                self._box_sel_active = True
+                self._box_sel_x1 = mx
+                self._box_sel_y1 = my
+                self.cursor = [cx, cy]
+                self._render()
+            elif [cx, cy] != self.cursor:
                 self.cursor = [cx, cy]
                 self._render()
             return
@@ -1168,6 +1288,58 @@ class Editor:
         if (new_gx, new_gy) == (target.gx, target.gy):
             return
 
+        # Multi-component group drag
+        if self._drag_type == "COMP" and self._drag_target in self.selected_comps and len(self.selected_comps) > 1:
+            dx = new_gx - target.gx
+            dy = new_gy - target.gy
+            if dx == 0 and dy == 0:
+                return
+
+            # Check bounds for all selected components
+            if any(not (1 <= c.gx + dx <= COLS - 2 and 1 <= c.gy + dy <= ROWS - 2) for c in self.selected_comps):
+                return
+
+            # Check collisions with unselected components
+            unselected = { (c.gx, c.gy) for c in self.comps if c not in self.selected_comps }
+            for c in self.selected_comps:
+                if (c.gx + dx, c.gy + dy) in unselected:
+                    self._status(f"[!] Target cell ({c.gx+dx}, {c.gy+dy}) occupied", "#f59e0b")
+                    return
+
+            # Move all selected components
+            for c in self.selected_comps:
+                c.gx += dx
+                c.gy += dy
+
+            # Move all selected wire labels
+            for l in self.selected_wlbls:
+                l.gx += dx
+                l.gy += dy
+
+            # Move all selected wires
+            for w in self.selected_wires:
+                w.x1 += dx; w.y1 += dy
+                w.x2 += dx; w.y2 += dy
+
+            # Shift+drag stretches connected unselected wires
+            shift_pressed = bool(getattr(ev, "state", 0) & 0x0001)
+            if shift_pressed:
+                old_pins = set()
+                for c in self.selected_comps:
+                    for px, py in self._get_comp_pins(c):
+                        old_pins.add((px - dx, py - dy))
+                for w in self.wires:
+                    if w not in self.selected_wires:
+                        if (w.x1, w.y1) in old_pins:
+                            w.x1 += dx; w.y1 += dy
+                        if (w.x2, w.y2) in old_pins:
+                            w.x2 += dx; w.y2 += dy
+
+            self.cursor = [target.gx, target.gy]
+            self._status(f"Moving {len(self.selected_comps)} components → ({target.gx}, {target.gy})", "#a78bfa")
+            self._render()
+            return
+
         if self._drag_type == "COMP":
             occ = next((c for c in self.comps if c is not target and c.gx == new_gx and c.gy == new_gy), None)
             if occ:
@@ -1177,8 +1349,7 @@ class Editor:
             dx = new_gx - target.gx
             dy = new_gy - target.gy
 
-            # Shift+drag stretches connected wire endpoints
-            shift_pressed = bool(ev.state & 0x0001)
+            shift_pressed = bool(getattr(ev, "state", 0) & 0x0001)
             if shift_pressed:
                 old_pins = set(self._get_comp_pins(target))
                 for w in self.wires:
@@ -1206,10 +1377,65 @@ class Editor:
             self.cv.config(cursor="none")
         except Exception:
             pass
+
+        # Complete marquee box selection
+        if getattr(self, "_box_sel_active", False):
+            self._box_sel_active = False
+            mx0, my0 = self._box_sel_x0, self._box_sel_y0
+            mx1, my1 = self._box_sel_x1, self._box_sel_y1
+            bx0 = min(mx0, mx1)
+            bx1 = max(mx0, mx1)
+            by0 = min(my0, my1)
+            by1 = max(my0, my1)
+
+            shift_pressed = bool(getattr(ev, "state", 0) & 0x0001)
+            ctrl_pressed  = bool(getattr(ev, "state", 0) & 0x0004)
+            if not (shift_pressed or ctrl_pressed):
+                self._clear_selection()
+
+            GS = self.GS
+            # Select components in or touching box
+            for c in self.comps:
+                cx, cy = c.gx * GS, c.gy * GS
+                if bx0 <= cx + GS*0.75 and bx1 >= cx - GS*0.75 and by0 <= cy + GS*0.75 and by1 >= cy - GS*0.75:
+                    self.selected_comps.add(c)
+
+            # Select wire labels in box
+            for wl in self.wlbls:
+                wx, wy = wl.gx * GS, wl.gy * GS
+                if bx0 <= wx + GS*0.5 and bx1 >= wx - GS*0.5 and by0 <= wy + GS*0.5 and by1 >= wy - GS*0.5:
+                    self.selected_wlbls.add(wl)
+
+            # Select wires in or crossing box
+            for w in self.wires:
+                wx1, wy1 = w.x1 * GS, w.y1 * GS
+                wx2, wy2 = w.x2 * GS, w.y2 * GS
+                if bx0 <= max(wx1, wx2) and bx1 >= min(wx1, wx2) and by0 <= max(wy1, wy2) and by1 >= min(wy1, wy2):
+                    self.selected_wires.add(w)
+
+            n_c = len(self.selected_comps)
+            n_w = len(self.selected_wires)
+            n_l = len(self.selected_wlbls)
+            parts = []
+            if n_c: parts.append(f"{n_c} comp{'s' if n_c!=1 else ''}")
+            if n_w: parts.append(f"{n_w} wire{'s' if n_w!=1 else ''}")
+            if n_l: parts.append(f"{n_l} label{'s' if n_l!=1 else ''}")
+            if parts:
+                self._status(f"✓ Selected {', '.join(parts)}", "#38bdf8")
+            else:
+                self._status("No items selected", "#94a3b8")
+            self._render()
+            self._drag_target = None
+            self._drag_type = None
+            self._drag_moved = False
+            self._drag_undo_snapshot = None
+            return
+
         if self._drag_target and self._drag_moved:
             target = self._drag_target
             name = getattr(target, "label", getattr(target, "text", "Item"))
-            if (target.gx, target.gy) != (self._drag_start_gx, self._drag_start_gy):
+            n_sel = len(self.selected_comps)
+            if (target.gx, target.gy) != (self._drag_start_gx, self._drag_start_gy) or n_sel > 1:
                 if getattr(self, "_drag_undo_snapshot", None):
                     self._undo_stack.append(self._drag_undo_snapshot)
                     if len(self._undo_stack) > 60:
@@ -1217,10 +1443,14 @@ class Editor:
                     self._redo_stack.clear()
                     self._update_undo_redo_ui()
                     self._drag_undo_snapshot = None
-                self._status(f"✓ Moved {name} to ({target.gx}, {target.gy})", "#4ade80")
+                if n_sel > 1:
+                    self._status(f"✓ Moved {n_sel} components", "#4ade80")
+                else:
+                    self._status(f"✓ Moved {name} to ({target.gx}, {target.gy})", "#4ade80")
             else:
                 self._status(f"· {name} at ({target.gx}, {target.gy})", "#94a3b8")
             self._render()
+
         self._drag_target = None
         self._drag_type   = None
         self._drag_moved  = False
@@ -1288,6 +1518,9 @@ class Editor:
 
         # Global clipboard & history shortcuts with Ctrl modifier
         if ctrl:
+            if k == "a":
+                self._select_all()
+                return "break"
             if k == "z":
                 if getattr(ev, "state", 0) & 1:  # Shift + Ctrl + Z
                     self._redo()
@@ -1330,7 +1563,15 @@ class Editor:
             if ku == "E":  self._start_edit(); return
             if ev.char == ":": self._open_cmd(); return
             if k in ("delete","backspace"): self._delete(); return
-            if k == "escape" and self.mode == "MOUSE": self._toggle_mouse(); return
+            if k == "escape":
+                if self.has_selection():
+                    self._clear_selection()
+                    self._status("Selection cleared", "#94a3b8")
+                    self._render()
+                    return
+                if self.mode == "MOUSE":
+                    self._toggle_mouse()
+                    return
 
         elif self.mode == "WIRE":
             if k in ("w","return"): self._commit_wire(); return
@@ -1351,6 +1592,7 @@ class Editor:
 
     def _restore_snapshot(self, snap: dict):
         """Restore schematic state from a snapshot."""
+        self._clear_selection()
         self.comps = [Component.from_dict(d) for d in snap.get("components", [])]
         self.wires = [Wire.from_dict(d) for d in snap.get("wires", [])]
         self.wlbls = [WireLabel.from_dict(d) for d in snap.get("wirelabels", [])]
@@ -1414,7 +1656,47 @@ class Editor:
         self._render()
 
     def _copy(self):
-        """Copy component or net label at current cursor to clipboard."""
+        """Copy selected items (or item at cursor) to clipboard."""
+        if self.has_selection():
+            comps = list(self.selected_comps)
+            wires = list(self.selected_wires)
+            labels = list(self.selected_wlbls)
+
+            if len(comps) == 1 and not wires and not labels:
+                c = comps[0]
+                self._clipboard = {"kind": "comp", "data": c.to_dict()}
+                self._update_undo_redo_ui()
+                self._status(f"✓ Copied {c.label} ({c.type})", "#38bdf8")
+                self.cv.focus_set()
+                return
+
+            if len(labels) == 1 and not comps and not wires:
+                wl = labels[0]
+                self._clipboard = {"kind": "label", "data": wl.to_dict()}
+                self._update_undo_redo_ui()
+                self._status(f"✓ Copied net label '{wl.text}'", "#38bdf8")
+                self.cv.focus_set()
+                return
+
+            all_gx = [c.gx for c in comps] + [w.x1 for w in wires] + [w.x2 for w in wires] + [l.gx for l in labels]
+            all_gy = [c.gy for c in comps] + [w.y1 for w in wires] + [w.y2 for w in wires] + [l.gy for l in labels]
+            orig_gx = min(all_gx) if all_gx else self.cursor[0]
+            orig_gy = min(all_gy) if all_gy else self.cursor[1]
+
+            self._clipboard = {
+                "kind": "group",
+                "comps": [c.to_dict() for c in comps],
+                "wires": [w.to_dict() for w in wires],
+                "labels": [l.to_dict() for l in labels],
+                "orig_gx": orig_gx,
+                "orig_gy": orig_gy,
+            }
+            self._update_undo_redo_ui()
+            n_tot = len(comps) + len(wires) + len(labels)
+            self._status(f"✓ Copied {n_tot} items to clipboard", "#38bdf8")
+            self.cv.focus_set()
+            return
+
         c = self._at_cursor()
         if c:
             self._clipboard = {"kind": "comp", "data": c.to_dict()}
@@ -1431,11 +1713,27 @@ class Editor:
             self.cv.focus_set()
             return
 
-        self._status("[!] Nothing to copy at cursor", "#f87171")
+        self._status("[!] Nothing to copy at cursor or in selection", "#f87171")
         self.cv.focus_set()
 
     def _cut(self):
-        """Cut component or net label at current cursor to clipboard."""
+        """Cut selected items (or item at cursor) to clipboard."""
+        if self.has_selection():
+            self._copy()
+            self._push_undo()
+            n_c = len(self.selected_comps)
+            n_w = len(self.selected_wires)
+            n_l = len(self.selected_wlbls)
+            self.comps = [c for c in self.comps if c not in self.selected_comps]
+            self.wires = [w for w in self.wires if w not in self.selected_wires]
+            self.wlbls = [l for l in self.wlbls if l not in self.selected_wlbls]
+            self._clear_selection()
+            self._update_undo_redo_ui()
+            self._status(f"✓ Cut {n_c} comps, {n_w} wires, {n_l} labels", "#38bdf8")
+            self.cv.focus_set()
+            self._render()
+            return
+
         c = self._at_cursor()
         if c:
             self._clipboard = {"kind": "comp", "data": c.to_dict()}
@@ -1458,11 +1756,11 @@ class Editor:
             self._render()
             return
 
-        self._status("[!] Nothing to cut at cursor", "#f87171")
+        self._status("[!] Nothing to cut at cursor or in selection", "#f87171")
         self.cv.focus_set()
 
     def _paste(self):
-        """Paste copied item from clipboard at current cursor position."""
+        """Paste copied item(s) from clipboard at current cursor position."""
         if not self._clipboard:
             self._status("[!] Clipboard empty — copy an item first (Ctrl+C)", "#f87171")
             self.cv.focus_set()
@@ -1470,6 +1768,56 @@ class Editor:
 
         kind = self._clipboard.get("kind")
         gx, gy = self.cursor
+
+        if kind == "group":
+            self._push_undo()
+            orig_gx = self._clipboard.get("orig_gx", gx)
+            orig_gy = self._clipboard.get("orig_gy", gy)
+            dx = gx - orig_gx
+            dy = gy - orig_gy
+
+            self._clear_selection()
+
+            new_comps = []
+            for d_orig in self._clipboard.get("comps", []):
+                d = copy.deepcopy(d_orig)
+                d["gx"] += dx
+                d["gy"] += dy
+                d["label"] = None
+                c = Component.from_dict(d)
+                cnt_key = COUNTER_GROUP.get(c.type, c.type)
+                pfx = PREFIX.get(c.type, c.type[0])
+                existing_labels = {comp.label for comp in self.comps} | {comp.label for comp in new_comps}
+                while c.label in existing_labels:
+                    Component._cnt[cnt_key] = Component._cnt.get(cnt_key, 0) + 1
+                    c.label = f"{pfx}{Component._cnt[cnt_key]}"
+                new_comps.append(c)
+
+            new_wires = []
+            for d_orig in self._clipboard.get("wires", []):
+                d = copy.deepcopy(d_orig)
+                w = Wire(d["x1"] + dx, d["y1"] + dy, d["x2"] + dx, d["y2"] + dy)
+                new_wires.append(w)
+
+            new_labels = []
+            for d_orig in self._clipboard.get("labels", []):
+                d = copy.deepcopy(d_orig)
+                l = WireLabel(d["gx"] + dx, d["gy"] + dy, d["text"])
+                new_labels.append(l)
+
+            self.comps.extend(new_comps)
+            self.wires.extend(new_wires)
+            self.wlbls.extend(new_labels)
+
+            self.selected_comps = set(new_comps)
+            self.selected_wires = set(new_wires)
+            self.selected_wlbls = set(new_labels)
+
+            n_tot = len(new_comps) + len(new_wires) + len(new_labels)
+            self._status(f"✓ Pasted {n_tot} items at ({gx}, {gy})", "#4ade80")
+            self.cv.focus_set()
+            self._render()
+            return
 
         if kind == "comp":
             if self._at_cursor():
@@ -1484,7 +1832,6 @@ class Editor:
             d["label"] = None  # Force generation of a fresh sequential label
 
             c = Component.from_dict(d)
-            # Ensure label uniqueness against any manual label assignments
             cnt_key = COUNTER_GROUP.get(c.type, c.type)
             pfx = PREFIX.get(c.type, c.type[0])
             existing_labels = {comp.label for comp in self.comps}
@@ -1493,6 +1840,8 @@ class Editor:
                 c.label = f"{pfx}{Component._cnt[cnt_key]}"
 
             self.comps.append(c)
+            self._clear_selection()
+            self.selected_comps.add(c)
             self._status(f"✓ Pasted {c.label} ({c.type}) at ({gx}, {gy})", "#4ade80")
             self.cv.focus_set()
             self._render()
@@ -1501,7 +1850,10 @@ class Editor:
             self._push_undo()
             d = copy.deepcopy(self._clipboard["data"])
             self.wlbls = [l for l in self.wlbls if not (l.gx == gx and l.gy == gy)]
-            self.wlbls.append(WireLabel(gx, gy, d["text"]))
+            wl_new = WireLabel(gx, gy, d["text"])
+            self.wlbls.append(wl_new)
+            self._clear_selection()
+            self.selected_wlbls.add(wl_new)
             self._status(f"✓ Pasted net label '{d['text']}' at ({gx}, {gy})", "#4ade80")
             self.cv.focus_set()
             self._render()
@@ -1519,13 +1871,17 @@ class Editor:
         if self._at_cursor():
             self._status("[!] Cell occupied — move cursor first", "#f87171"); return
         self._push_undo()
-        self.comps.append(Component(typ, *self.cursor))
+        self._clear_selection()
+        c = Component(typ, *self.cursor)
+        self.comps.append(c)
+        self.selected_comps.add(c)
         self._render()
 
     def _place_device(self, typ):
         if self._at_cursor():
             self._status("[!] Cell occupied — move cursor first", "#f87171"); return
         self._push_undo()
+        self._clear_selection()
         c = Component(typ, *self.cursor)
         if typ in ("NMOS", "PMOS"):
             dw, dl = self.model_config.default_wl(typ)
@@ -1539,9 +1895,17 @@ class Editor:
             if c.model_name and not c.model_name.endswith("_GENERIC"):
                 c.value = c.model_name
         self.comps.append(c)
+        self.selected_comps.add(c)
         self._render()
 
     def _rotate(self):
+        if self.selected_comps:
+            self._push_undo()
+            for c in self.selected_comps:
+                c.rot = (c.rot + 90) % 360
+            self._status(f"Rotated {len(self.selected_comps)} components", "#38bdf8")
+            self._render()
+            return
         c = self._at_cursor()
         if c:
             self._push_undo()
@@ -1549,7 +1913,14 @@ class Editor:
         self._render()
 
     def _flip(self):
-        """Toggle horizontal mirror on the component at cursor."""
+        """Toggle horizontal mirror on selected components or component at cursor."""
+        if self.selected_comps:
+            self._push_undo()
+            for c in self.selected_comps:
+                c.flip = not c.flip
+            self._status(f"Flipped {len(self.selected_comps)} components", "#f472b6")
+            self._render()
+            return
         c = self._at_cursor()
         if not c:
             self._status("[!] No component at cursor", "#f87171"); return
@@ -1747,6 +2118,19 @@ class Editor:
         dlg.geometry(f"+{rx - dlg.winfo_width()//2}+{ry - dlg.winfo_height()//2}")
 
     def _delete(self):
+        if self.has_selection():
+            self._push_undo()
+            n_c = len(self.selected_comps)
+            n_w = len(self.selected_wires)
+            n_l = len(self.selected_wlbls)
+            self.comps = [c for c in self.comps if c not in self.selected_comps]
+            self.wires = [w for w in self.wires if w not in self.selected_wires]
+            self.wlbls = [l for l in self.wlbls if l not in self.selected_wlbls]
+            self._clear_selection()
+            self._status(f"✓ Deleted {n_c} comp{'s' if n_c!=1 else ''}, {n_w} wire{'s' if n_w!=1 else ''}", "#38bdf8")
+            self._render()
+            return
+
         gx, gy = self.cursor
         has_comp = any(c.gx == gx and c.gy == gy for c in self.comps)
         has_wire = any((w.x1 == gx and w.y1 == gy) or (w.x2 == gx and w.y2 == gy) for w in self.wires)
@@ -2751,8 +3135,8 @@ class Editor:
 
     def _open_cmd(self):
         cmd = self._ask("Command",
-            "undo  redo  copy  paste  cut  ·  nmos  pmos  npn  pnp  ·  in  out  inout  vdd  vss  ·  "
-            "pdk  sim  ·  save  load  netlist  savesvg  savepng  doc clear",
+            "all  deselect  ·  undo  redo  copy  paste  cut  ·  nmos  pmos  npn  pnp  ·  "
+            "in  out  inout  vdd  vss  ·  pdk  sim  ·  save  load  netlist  savesvg  savepng  doc clear",
             color="#38bdf8")
         if cmd and cmd.strip():
             self._exec_cmd(cmd.strip())
@@ -2766,7 +3150,13 @@ class Editor:
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else None
 
-        if cmd == "undo":
+        if cmd in ("all", "selectall", "sa"):
+            self._select_all()
+        elif cmd in ("none", "deselect", "unselect"):
+            self._clear_selection()
+            self._status("Selection cleared", "#94a3b8")
+            self._render()
+        elif cmd == "undo":
             self._undo()
         elif cmd == "redo":
             self._redo()
@@ -3370,6 +3760,7 @@ class Editor:
         if self.comps or self.wires or self.wlbls:
             self._push_undo()
         self.comps=[]; self.wires=[]; self.wlbls=[]
+        self._clear_selection()
         Component._uid=0; Component._cnt={}
         Wire._uid=0
         self.mode="NORMAL"; self.ws=None
@@ -3397,8 +3788,11 @@ class Editor:
 
         # Wires
         for w in self.wires:
+            w_sel = (w in self.selected_wires) and not doc_mode
+            w_col = "#60a5fa" if w_sel else WIRE_C
+            w_w   = wire_w + 1.2 if w_sel else wire_w
             cv.create_line(w.x1*GS,w.y1*GS,w.x2*GS,w.y2*GS,
-                           fill=WIRE_C, width=wire_w, capstyle=tk.ROUND)
+                           fill=w_col, width=w_w, capstyle=tk.ROUND)
 
         # Junction dots
         ep: dict = {}
@@ -3415,6 +3809,7 @@ class Editor:
         # Wire labels (net names on wires)
         f_wlbl = ("Helvetica", max(7, GS//8), "bold")
         for wl in self.wlbls:
+            wl_sel = (wl in self.selected_wlbls) and not doc_mode
             wx, wy = wl.gx * GS, wl.gy * GS
             # Small flag background
             tw = max(30, len(wl.text) * max(6, GS//9))
@@ -3422,10 +3817,11 @@ class Editor:
             cv.create_rectangle(
                 wx - tw//2 - 3, wy - th//2 - 2,
                 wx + tw//2 + 3, wy + th//2 + 2,
-                fill="#1e293b", outline=WIRE_LBL_COLOR,
-                width=1.0)
+                fill=SEL_RECT if wl_sel else "#1e293b",
+                outline=SEL_OUT if wl_sel else WIRE_LBL_COLOR,
+                width=1.5 if wl_sel else 1.0)
             cv.create_text(wx, wy,
-                text=wl.text, fill=WIRE_LBL_COLOR,
+                text=wl.text, fill="#ffffff" if wl_sel else WIRE_LBL_COLOR,
                 font=f_wlbl, anchor="center")
 
         # Wire preview
@@ -3439,8 +3835,9 @@ class Editor:
 
         # Components
         gx_c, gy_c = self.cursor
+        has_sel = self.has_selection()
         for comp in self.comps:
-            sel = (comp.gx==gx_c and comp.gy==gy_c) and not doc_mode
+            sel = ((comp in self.selected_comps) or (not has_sel and comp.gx==gx_c and comp.gy==gy_c)) and not doc_mode
             ox, oy = comp.gx*GS, comp.gy*GS
 
             if sel:
@@ -3506,13 +3903,34 @@ class Editor:
                     self.cursor[0]*GS+GS-1,self.cursor[1]*GS+GS-1,
                     outline="#38bdf8",width=0.6,dash=(3,4))
 
+            # Rubberband marquee box selection
+            if getattr(self, "_box_sel_active", False):
+                bx0 = getattr(self, "_box_sel_x0", 0)
+                by0 = getattr(self, "_box_sel_y0", 0)
+                bx1 = getattr(self, "_box_sel_x1", 0)
+                by1 = getattr(self, "_box_sel_y1", 0)
+                cv.create_rectangle(
+                    min(bx0, bx1), min(by0, by1),
+                    max(bx0, bx1), max(by0, by1),
+                    fill=SEL_RECT, outline=SEL_OUT, width=1.0, dash=(4, 3))
+
         # Topbar
         self.lbl_coord.config(text=f"({self.cursor[0]},{self.cursor[1]})")
         self.lbl_zoom.config(text=f"{self._zoom_pct()}%")
-        c = self._at_cursor()
-        flip_tag = "  ⟺" if (c and c.flip) else ""
-        self.lbl_info.config(
-            text=f"· {c.label}  {c.value}{flip_tag}" if c else "")
+        if self.has_selection():
+            n_c = len(self.selected_comps)
+            n_w = len(self.selected_wires)
+            n_l = len(self.selected_wlbls)
+            parts = []
+            if n_c: parts.append(f"{n_c} comp{'s' if n_c!=1 else ''}")
+            if n_w: parts.append(f"{n_w} wire{'s' if n_w!=1 else ''}")
+            if n_l: parts.append(f"{n_l} label{'s' if n_l!=1 else ''}")
+            self.lbl_info.config(text=f"[{', '.join(parts)} selected]")
+        else:
+            c = self._at_cursor()
+            flip_tag = "  ⟺" if (c and c.flip) else ""
+            self.lbl_info.config(
+                text=f"· {c.label}  {c.value}{flip_tag}" if c else "")
         bg_,fg_ = MODE_COLS.get(self.mode,("#232535","#cbd5e1"))
         self.lbl_mode.config(text=self.mode, bg=bg_, fg=fg_)
 

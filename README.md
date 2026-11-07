@@ -43,9 +43,11 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | Mouse Action | Description |
 |---|---|
 | **Hover / Movement** | The canvas grid cursor smoothly follows the mouse pointer in real time, updating the coordinate display `(X, Y)` and hovering component information in the topbar |
-| **Left Click** | Select a component or place the grid cursor at a specific cell |
-| **Left Drag** | Drag and drop any component or wire label across the canvas to reposition it (with automatic cell collision avoidance) |
-| **Shift + Left Drag** | Move a component while automatically stretching connected wire endpoints attached to its pins |
+| **Left Click** | Select an element (component, wire, or net label) or place the grid cursor at a specific cell |
+| **Shift / Ctrl + Click** | Toggle selection of multiple elements without deselecting others |
+| **Marquee Box Drag** | Drag on empty canvas to draw a rubberband selection box, selecting all components, wires, and labels within |
+| **Left Drag** | Drag and drop selected component(s), wire(s), or wire label(s) across the canvas to reposition them together (with automatic cell collision avoidance) |
+| **Shift + Left Drag** | Move component(s) while automatically stretching connected unselected wire endpoints |
 | **Double Click** | Open the type-aware Properties dialog for the clicked component (equivalent to pressing `E`) |
 | **Right Click** | Rotate the clicked component 90° clockwise (or cancel active wire routing in Wire mode) |
 | **Interactive Wiring** | In Wire mode (`W`), the routing preview dynamically follows the mouse; left-clicking places vertices |
@@ -59,11 +61,13 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | Key | Action |
 |---|---|
 | `↑ ↓ ← →` | Move cursor |
+| `Ctrl + A` | Select all elements on canvas |
+| `Escape` | Clear active selection / cancel wire |
 | `Ctrl + Z` / `u` | Undo last schematic change |
 | `Ctrl + Y` / `Ctrl + Shift + Z` / `U` | Redo last undone change |
-| `Ctrl + C` | Copy component or net label at cursor |
-| `Ctrl + V` | Paste copied component or net label |
-| `Ctrl + X` | Cut component or net label at cursor |
+| `Ctrl + C` | Copy selected element(s) or item at cursor |
+| `Ctrl + V` | Paste copied element(s) relative to cursor |
+| `Ctrl + X` | Cut selected element(s) or item at cursor |
 | `R` | Place Resistor |
 | `C` | Place Capacitor |
 | `L` | Place Inductor |
@@ -71,30 +75,37 @@ Vischem features full mouse integration designed for an intuitive visual workflo
 | `I` | Place Current source |
 | `G` | Place Ground |
 | `W` | Wire mode  (Enter = commit, Esc = cancel) |
-| `Space` | Rotate 90° |
-| `F` | Flip (horizontal mirror) |
+| `Space` | Rotate 90° (rotates all selected components) |
+| `F` | Flip (horizontal mirror on all selected components) |
 | `E` | Open Properties dialog |
 | `T` | Add net label |
 | `M` | Toggle mouse mode |
 | `+ / -` | Zoom in / out |
-| `Del` | Delete component at cursor |
+| `Del` | Delete selected element(s) or item at cursor |
 | shift + `:` | Open command dialog |
 
 ---
 
-## History & Clipboard Operations
+## Multi-Element Selection & Clipboard
 
-Vischem provides full undo/redo and clipboard integration via toolbar buttons, hotkeys, and command bar:
+Vischem provides complete multi-element selection, group operations, and clipboard integration:
 
-- **Undo & Redo**:
-  - Up to 60 levels of deep history.
-  - Automatically records all schematic modifications: placing components/devices, drawing wires, mouse drag-and-drop moves (with or without Shift wire stretching), rotating, flipping, deleting, net labelling, clearing, and property edits in dialogs.
-  - Available via **Undo** / **Redo** toolbar buttons, `Ctrl+Z` / `Ctrl+Y` (`Ctrl+Shift+Z`, `u`, `U`), or `:undo` / `:redo`.
-- **Copy, Cut & Paste**:
-  - Copy or cut any component or net label at the cursor with `Ctrl+C` / `Ctrl+X` or the topbar buttons.
-  - Paste with `Ctrl+V` or the **Paste** button.
-  - Transistor sizing ($W/L$), parallel fingers ($M$), bulk connections, and PDK model references are faithfully duplicated while generating fresh collision-free sequential instance labels (e.g. `M1` → `M2`, `R1` → `R2`).
-  - Net labels can be quickly duplicated across wire junctions.
+- **Selecting Multiple Elements**:
+  - **Shift + Click / Ctrl + Click**: Click individual components, wires, or net labels to add or remove them from the selection set.
+  - **Marquee Selection (Rubberband Box)**: Click and drag on empty canvas to draw a dashed selection rectangle; upon release, all components, wires, and net labels enclosed in or touching the box are selected.
+  - **Select All**: Press `Ctrl+A` or type `:all` to select every component, wire, and net label on the schematic.
+  - **Deselect**: Press `Escape`, click on empty canvas, or type `:deselect` to clear selection.
+- **Group Drag & Drop**:
+  - Dragging any selected element moves all selected components, wires, and net labels in unison with boundary and collision checks.
+  - Shift-drag stretches unselected wire endpoints connected to the group.
+- **Group Copy, Cut & Paste**:
+  - `Ctrl+C` copies all selected elements to clipboard while preserving relative spacing and device sizing.
+  - `Ctrl+V` pastes the entire group relative to cursor, auto-minting unique sequential labels (`M2`, `M3`, etc.).
+  - `Ctrl+X` cuts all selected elements into clipboard.
+- **Group Rotate, Flip & Delete**:
+  - `Space` rotates all selected components simultaneously.
+  - `F` flips all selected components horizontally.
+  - `Del` deletes all selected components, wires, and labels in a single undoable action (`Ctrl+Z` fully restores them).
 
 ---
 
