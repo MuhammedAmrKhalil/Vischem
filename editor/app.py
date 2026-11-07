@@ -136,25 +136,39 @@ FD_SAVE_ALL= [("VLSI Schematic",  "*.json"),
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 # ── Palette ────────────────────────────────────────────────────────────────────
-BG        = "#07090f"
-GRID_DOT  = "#131d30"
-WIRE_C    = "#22c55e"
-WIRE_PRV  = "#4ade80"
-CURSOR_C  = "#f59e0b"
-PANEL_BG  = "#0b0f1c"
-BORDER    = "#141c2e"
-SEL_RECT  = "#1a1200"
-SEL_OUT   = "#f59e0b"
-LBL_NORMAL= "#94a3b8"
-LBL_SEL   = "#fbbf24"
-VAL_NORMAL= "#818cf8"
-VAL_SEL   = "#c4b5fd"
-FLIP_DOT  = "#f472b6"   # magenta indicator for flipped components
+BG             = "#12131a"   # Deep matte charcoal canvas background
+GRID_DOT       = "#252836"   # Crisp, subtle grid dots
+WIRE_C         = "#38bdf8"   # Sky cyan — modern high-visibility schematic wiring
+WIRE_PRV       = "#f59e0b"   # Amber for in-progress wire
+CURSOR_C       = "#60a5fa"   # Accent blue crosshair
+PANEL_BG       = "#181924"   # Sleek dark slate panel background
+PANEL_ALT      = "#1e202e"   # Panel section / header background
+BORDER         = "#282a3a"   # Crisp modern border
+BTN_BG         = "#232535"   # Uniform sleek button background
+BTN_FG         = "#cbd5e1"   # Clean readable light slate text
+BTN_ACTIVE_BG  = "#2e3146"   # Button hover/pressed background
+BTN_ACTIVE_FG  = "#ffffff"   # Button hover/pressed foreground
+BTN_PRIMARY_BG = "#2563eb"   # Primary action button background (blue)
+BTN_PRIMARY_FG = "#ffffff"   # Primary action button foreground
+BTN_PRIMARY_ACT= "#1d4ed8"   # Primary action button active
+BTN_RUN_BG     = "#166534"   # Run button background (emerald)
+BTN_RUN_FG     = "#ffffff"   # Run button foreground
+BTN_RUN_ACT    = "#15803d"   # Run button active
+ENTRY_BG       = "#12131a"   # Input entry background
+ENTRY_FG       = "#f1f5f9"   # Input entry foreground
+SEL_RECT       = "#1e293b"   # Selection box background
+SEL_OUT        = "#38bdf8"   # Selection outline
+LBL_NORMAL     = "#f1f5f9"   # Component reference label (M1, R1, etc.)
+LBL_SEL        = "#38bdf8"   # Selected label
+VAL_NORMAL     = "#94a3b8"   # Component value (W/L=..., 1k)
+VAL_SEL        = "#bae6fd"   # Selected value
+FLIP_DOT       = "#ec4899"   # Flipped component indicator
+PIN_COLOR      = "#f59e0b"   # Port flag text color
 
 MODE_COLS = {
-    "NORMAL": ("#10082a", "#a78bfa"),
-    "WIRE":   ("#071a07", "#4ade80"),
-    "MOUSE":  ("#0a1520", "#38bdf8"),
+    "NORMAL": ("#232535", "#94a3b8"),
+    "WIRE":   ("#14532d", "#4ade80"),
+    "MOUSE":  ("#1e3a5f", "#38bdf8"),
 }
 
 DEFAULTS = {
@@ -666,64 +680,64 @@ class Editor:
         self.lbl_mode.pack(side=tk.LEFT, padx=(10, 4))
 
         self.lbl_coord = tk.Label(top, text="(6,5)",
-            bg=PANEL_BG, fg="#2d4055", font=("Courier", 9))
+            bg=PANEL_BG, fg="#64748b", font=("Courier", 9))
         self.lbl_coord.pack(side=tk.LEFT)
 
         self.lbl_info = tk.Label(top, text="",
-            bg=PANEL_BG, fg="#c9d1d9", font=("Courier", 9, "bold"))
+            bg=PANEL_BG, fg="#cbd5e1", font=("Courier", 9, "bold"))
         self.lbl_info.pack(side=tk.LEFT, padx=8)
 
         zf = tk.Frame(top, bg=PANEL_BG); zf.pack(side=tk.LEFT, padx=6)
         tk.Button(zf, text="−", command=lambda: self._zoom(-8),
-            bg=BORDER, fg="#94a3b8", activebackground="#1e2c3e",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Courier", 10, "bold"), relief="flat",
             width=2, cursor="hand2").pack(side=tk.LEFT)
         self.lbl_zoom = tk.Label(zf, text="100%", width=5,
-            bg=PANEL_BG, fg="#4b5563", font=("Courier", 8))
+            bg=PANEL_BG, fg="#64748b", font=("Courier", 8))
         self.lbl_zoom.pack(side=tk.LEFT, padx=2)
         tk.Button(zf, text="+", command=lambda: self._zoom(+8),
-            bg=BORDER, fg="#94a3b8", activebackground="#1e2c3e",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Courier", 10, "bold"), relief="flat",
             width=2, cursor="hand2").pack(side=tk.LEFT)
 
-        tk.Button(top, text="⌀ Clear", command=self._clear,
-            bg=PANEL_BG, fg="#7a2020", activebackground="#1a0a0a",
-            activeforeground="#f87171", relief="flat",
+        tk.Button(top, text="Clear", command=self._clear,
+            bg=BTN_BG, fg="#f87171", activebackground="#3d1e28",
+            activeforeground="#fca5a5", relief="flat",
             font=("Courier", 8, "bold"), cursor="hand2", padx=8
         ).pack(side=tk.RIGHT, padx=4)
 
-        self.btn_netlist = tk.Button(top, text="{ } Netlist",
+        self.btn_netlist = tk.Button(top, text="Netlist",
             command=self._toggle_netlist_panel,
-            bg="#0d1a0d", fg="#4ade80", activebackground="#0a1f0a",
-            activeforeground="#86efac", relief="flat",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+            activeforeground=BTN_ACTIVE_FG, relief="flat",
             font=("Courier", 8, "bold"), cursor="hand2", padx=8)
         self.btn_netlist.pack(side=tk.RIGHT, padx=4)
 
-        self.btn_sim = tk.Button(top, text="⚡ Simulation",
+        self.btn_sim = tk.Button(top, text="Simulation",
             command=self._open_sim_dialog,
-            bg="#100a28", fg="#a78bfa", activebackground="#1a1040",
-            activeforeground="#c4b5fd", relief="flat",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+            activeforeground=BTN_ACTIVE_FG, relief="flat",
             font=("Courier", 8, "bold"), cursor="hand2", padx=8)
         self.btn_sim.pack(side=tk.RIGHT, padx=4)
 
-        self.btn_run = tk.Button(top, text="▶ Run",
+        self.btn_run = tk.Button(top, text="Run",
             command=self._run_simulation,
-            bg="#071a07", fg="#4ade80", activebackground="#0a2a0a",
-            activeforeground="#86efac", relief="flat",
+            bg=BTN_RUN_BG, fg=BTN_RUN_FG, activebackground=BTN_RUN_ACT,
+            activeforeground="#ffffff", relief="flat",
             font=("Courier", 9, "bold"), cursor="hand2", padx=10)
         self.btn_run.pack(side=tk.RIGHT, padx=4)
 
-        self.btn_doc = tk.Button(top, text="🖨 Doc Image",
+        self.btn_doc = tk.Button(top, text="Doc Image",
             command=self._dialog_save_doc_image,
-            bg="#13151c", fg="#cbd5e1", activebackground="#1f2430",
-            activeforeground="#f1f5f9", relief="flat",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+            activeforeground=BTN_ACTIVE_FG, relief="flat",
             font=("Courier", 8, "bold"), cursor="hand2", padx=8)
         self.btn_doc.pack(side=tk.RIGHT, padx=4)
 
-        self.btn_models = tk.Button(top, text="⚛ Models",
+        self.btn_models = tk.Button(top, text="Models",
             command=self._open_model_manager,
-            bg="#1a0e0e", fg="#f87171", activebackground="#2a1010",
-            activeforeground="#fca5a5", relief="flat",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+            activeforeground=BTN_ACTIVE_FG, relief="flat",
             font=("Courier", 8, "bold"), cursor="hand2", padx=8)
         self.btn_models.pack(side=tk.RIGHT, padx=4)
 
@@ -751,81 +765,81 @@ class Editor:
         self.cv.focus_set()
 
         # netlist panel (hidden by default)
-        self.netlist_frame = tk.Frame(self.workspace, bg="#080c10", bd=0, width=420)
+        self.netlist_frame = tk.Frame(self.workspace, bg=PANEL_BG, bd=1, relief="solid", highlightthickness=1, highlightbackground=BORDER, width=420)
 
-        nlh = tk.Frame(self.netlist_frame, bg="#0d1a0d", pady=4)
+        nlh = tk.Frame(self.netlist_frame, bg=PANEL_ALT, pady=4)
         nlh.pack(fill=tk.X)
-        tk.Label(nlh, text="  SPICE Netlist", bg="#0d1a0d", fg="#4ade80",
+        tk.Label(nlh, text="  SPICE Netlist", bg=PANEL_ALT, fg="#cbd5e1",
             font=("Courier", 9, "bold")).pack(side=tk.LEFT)
-        tk.Button(nlh, text="↻ Rebuild", command=self._rebuild_netlist,
-            bg="#0d1a0d", fg="#4ade80", activebackground="#0a2a0a",
-            relief="flat", font=("Courier", 8, "bold"),
+        tk.Button(nlh, text="Rebuild", command=self._rebuild_netlist,
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+            activeforeground=BTN_ACTIVE_FG, relief="flat", font=("Courier", 8, "bold"),
             cursor="hand2", padx=6).pack(side=tk.RIGHT, padx=4)
-        tk.Button(nlh, text="⬇ Save .cir",
+        tk.Button(nlh, text="Save .cir",
             command=self._dialog_save_netlist,
-            bg="#0d1a0d", fg="#818cf8", activebackground="#12103a",
-            relief="flat", font=("Courier", 8, "bold"),
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG,
+            activeforeground=BTN_ACTIVE_FG, relief="flat", font=("Courier", 8, "bold"),
             cursor="hand2", padx=6).pack(side=tk.RIGHT, padx=2)
 
         self.nl_warn = tk.Label(self.netlist_frame, text="",
-            bg="#1a1000", fg="#f59e0b",
+            bg="#2a1f10", fg="#fbbf24",
             font=("Courier", 7), anchor="w", padx=6, wraplength=400)
         self.nl_warn.pack(fill=tk.X)
 
         self.nl_nets = tk.Label(self.netlist_frame, text="",
-            bg="#080c10", fg="#334155",
+            bg=PANEL_BG, fg="#64748b",
             font=("Courier", 7), anchor="w", padx=6)
         self.nl_nets.pack(fill=tk.X)
 
-        nl_tf = tk.Frame(self.netlist_frame, bg="#080c10")
+        nl_tf = tk.Frame(self.netlist_frame, bg=PANEL_BG)
         nl_tf.pack(fill=tk.BOTH, expand=True)
-        nl_vsb = tk.Scrollbar(nl_tf, orient=tk.VERTICAL, bg=PANEL_BG)
+        nl_vsb = tk.Scrollbar(nl_tf, orient=tk.VERTICAL, bg=PANEL_BG, troughcolor=BORDER)
         nl_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        nl_hsb = tk.Scrollbar(nl_tf, orient=tk.HORIZONTAL, bg=PANEL_BG)
+        nl_hsb = tk.Scrollbar(nl_tf, orient=tk.HORIZONTAL, bg=PANEL_BG, troughcolor=BORDER)
         nl_hsb.pack(side=tk.BOTTOM, fill=tk.X)
         self.nl_text = tk.Text(nl_tf,
-            bg="#080c10", fg="#c9d1d9", font=("Courier", 9),
+            bg="#12131a", fg="#e2e8f0", font=("Courier", 9),
             insertbackground=CURSOR_C, selectbackground="#1e3a5f",
             relief="flat", bd=0, wrap=tk.NONE, state=tk.DISABLED,
             yscrollcommand=nl_vsb.set, xscrollcommand=nl_hsb.set)
         self.nl_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         nl_vsb.config(command=self.nl_text.yview)
         nl_hsb.config(command=self.nl_text.xview)
-        self.nl_text.tag_config("comment",  foreground="#2d4f35")
-        self.nl_text.tag_config("element",  foreground="#c9d1d9")
+        self.nl_text.tag_config("comment",  foreground="#64748b")
+        self.nl_text.tag_config("element",  foreground="#f1f5f9")
         self.nl_text.tag_config("net",      foreground="#38bdf8")
-        self.nl_text.tag_config("dot",      foreground="#a78bfa")
-        self.nl_text.tag_config("warning",  foreground="#f59e0b")
-        self.nl_text.tag_config("value",    foreground="#818cf8")
+        self.nl_text.tag_config("dot",      foreground="#c084fc")
+        self.nl_text.tag_config("warning",  foreground="#fbbf24")
+        self.nl_text.tag_config("value",    foreground="#67e8f9")
         self.nl_text.tag_config("end",      foreground="#4ade80")
 
         # ── Simulation log panel (hidden by default) ───────────────────────────
-        self.sim_log_frame = tk.Frame(self.workspace, bg="#080c10", bd=0, width=440)
+        self.sim_log_frame = tk.Frame(self.workspace, bg=PANEL_BG, bd=1, relief="solid", highlightthickness=1, highlightbackground=BORDER, width=440)
 
-        slh = tk.Frame(self.sim_log_frame, bg="#071a07", pady=4)
+        slh = tk.Frame(self.sim_log_frame, bg=PANEL_ALT, pady=4)
         slh.pack(fill=tk.X)
-        self.lbl_sim_header = tk.Label(slh, text="  ▶ Simulation Log",
-            bg="#071a07", fg="#4ade80",
+        self.lbl_sim_header = tk.Label(slh, text="  Simulation Log",
+            bg=PANEL_ALT, fg="#cbd5e1",
             font=("Courier", 9, "bold"))
         self.lbl_sim_header.pack(side=tk.LEFT)
-        tk.Button(slh, text="✕ Close",
+        tk.Button(slh, text="Close",
             command=self._hide_sim_log,
-            bg="#071a07", fg="#4b5563", activebackground="#0a2a0a",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             relief="flat", font=("Courier", 8), cursor="hand2", padx=6
         ).pack(side=tk.RIGHT, padx=4)
-        self.btn_show_raw = tk.Button(slh, text="📂 Show .raw",
+        self.btn_show_raw = tk.Button(slh, text="Show .raw",
             command=self._reveal_raw_file,
-            bg="#071a07", fg="#4b5563", activebackground="#0a2a0a",
+            bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             relief="flat", font=("Courier", 8, "bold"), cursor="hand2", padx=6)
         self.btn_show_raw.pack(side=tk.RIGHT, padx=2)
 
         # log text area
-        sl_tf = tk.Frame(self.sim_log_frame, bg="#080c10")
+        sl_tf = tk.Frame(self.sim_log_frame, bg=PANEL_BG)
         sl_tf.pack(fill=tk.BOTH, expand=True)
-        sl_vsb = tk.Scrollbar(sl_tf, orient=tk.VERTICAL, bg=PANEL_BG)
+        sl_vsb = tk.Scrollbar(sl_tf, orient=tk.VERTICAL, bg=PANEL_BG, troughcolor=BORDER)
         sl_vsb.pack(side=tk.RIGHT, fill=tk.Y)
         self.sim_log_text = tk.Text(sl_tf,
-            bg="#050810", fg="#c9d1d9", font=("Courier", 8),
+            bg="#12131a", fg="#e2e8f0", font=("Courier", 8),
             insertbackground=CURSOR_C, selectbackground="#1e3a5f",
             relief="flat", bd=0, wrap=tk.WORD, state=tk.DISABLED,
             yscrollcommand=sl_vsb.set)
@@ -833,19 +847,19 @@ class Editor:
         sl_vsb.config(command=self.sim_log_text.yview)
         self.sim_log_text.tag_config("ok",      foreground="#4ade80")
         self.sim_log_text.tag_config("err",     foreground="#f87171")
-        self.sim_log_text.tag_config("warn",    foreground="#f59e0b")
-        self.sim_log_text.tag_config("dim",     foreground="#334155")
-        self.sim_log_text.tag_config("header",  foreground="#4ade80",
+        self.sim_log_text.tag_config("warn",    foreground="#fbbf24")
+        self.sim_log_text.tag_config("dim",     foreground="#64748b")
+        self.sim_log_text.tag_config("header",  foreground="#38bdf8",
                                                 font=("Courier", 9, "bold"))
         self._last_raw_path: str | None = None  # set after each successful run
 
         self.lbl_status = tk.Label(self.root, text="", anchor="w",
-            bg=PANEL_BG, fg="#1e2c3a", font=("Courier", 8), padx=10, pady=3)
+            bg=PANEL_BG, fg="#94a3b8", font=("Courier", 8), padx=10, pady=3)
         self.lbl_status.pack(fill=tk.X, side=tk.BOTTOM)
 
     # ── Modal dialog (the stable input method from v0.5) ───────────────────────
     def _ask(self, title: str, prompt: str, initial: str = "",
-             color: str = "#818cf8") -> "str | None":
+             color: str = "#38bdf8") -> "str | None":
         result = [None]
         dlg = tk.Toplevel(self.root)
         dlg.title(title)
@@ -860,7 +874,7 @@ class Editor:
 
         evar = tk.StringVar(value=initial)
         ent  = tk.Entry(dlg, textvariable=evar,
-                        bg="#0c1020", fg="#e2e8f0",
+                        bg=ENTRY_BG, fg=ENTRY_FG,
                         insertbackground=CURSOR_C,
                         font=("Courier", 11), relief="flat", bd=4,
                         selectbackground="#1e3a5f", width=36)
@@ -877,14 +891,14 @@ class Editor:
             result[0] = None; dlg.destroy()
 
         tk.Button(bf, text="OK", command=_ok,
-                  bg="#10082a", fg="#a78bfa",
-                  activebackground="#1a1040", activeforeground="#c4b5fd",
+                  bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+                  activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
                   font=("Helvetica", 9, "bold"),
                   relief="flat", padx=16, pady=4,
                   cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
         tk.Button(bf, text="Cancel", command=_cancel,
-                  bg=BORDER, fg="#4b5563",
-                  activebackground="#1e2c3e", activeforeground="#94a3b8",
+                  bg=BTN_BG, fg=BTN_FG,
+                  activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
                   font=("Helvetica", 9), relief="flat",
                   padx=10, pady=4, cursor="hand2").pack(side=tk.LEFT)
 
@@ -1175,7 +1189,7 @@ class Editor:
         if c:
             self.cursor = [c.gx, c.gy]
             self._rotate()
-            self._status(f"↻ Rotated {c.label} to {c.rot}°", "#38bdf8")
+            self._status(f"Rotated {c.label} to {c.rot}°", "#38bdf8")
 
     def _on_motion(self, ev):
         """Update cursor position, appearance on hover, and wire guide in WIRE mode."""
@@ -1248,7 +1262,7 @@ class Editor:
         gx, gy = self.cursor
         return next((c for c in self.comps if c.gx==gx and c.gy==gy), None)
 
-    def _status(self, msg, col="#1e2c3a", sticky=True):
+    def _status(self, msg, col="#94a3b8", sticky=True):
         self._active_status = (msg, col) if sticky else None
         self.lbl_status.config(text=msg, fg=col)
 
@@ -1328,12 +1342,12 @@ class Editor:
         dlg.grab_set()
 
         # ── Header ─────────────────────────────────────────────────────────
-        tk.Label(dlg, text="⚡  Simulation Setup",
-            bg=PANEL_BG, fg="#a78bfa",
+        tk.Label(dlg, text="Simulation Setup",
+            bg=PANEL_BG, fg="#38bdf8",
             font=("Helvetica", 12, "bold"), pady=10).pack()
 
         # ── Analysis type selector ──────────────────────────────────────────
-        sel_frame = tk.Frame(dlg, bg="#0d1020", bd=1, relief="solid")
+        sel_frame = tk.Frame(dlg, bg=PANEL_ALT, bd=1, relief="solid")
         sel_frame.pack(fill=tk.X, padx=16, pady=(0,8))
 
         ana_var = tk.StringVar(value=self.sim_config.analysis)
@@ -1342,10 +1356,10 @@ class Editor:
             rb = tk.Radiobutton(sel_frame,
                 text=info["label"],
                 variable=ana_var, value=key,
-                bg="#0d1020", fg="#94a3b8",
-                selectcolor="#10082a",
-                activebackground="#0d1020",
-                activeforeground="#c4b5fd",
+                bg=PANEL_ALT, fg="#cbd5e1",
+                selectcolor=PANEL_BG,
+                activebackground=PANEL_ALT,
+                activeforeground="#ffffff",
                 font=("Helvetica", 9),
                 anchor="w", padx=12, pady=4,
                 cursor="hand2")
@@ -1353,7 +1367,7 @@ class Editor:
 
         # ── Description label ───────────────────────────────────────────────
         desc_lbl = tk.Label(dlg, text="",
-            bg=PANEL_BG, fg="#4b5563",
+            bg=PANEL_BG, fg="#94a3b8",
             font=("Helvetica", 8, "italic"),
             wraplength=380, anchor="w", padx=18)
         desc_lbl.pack(fill=tk.X)
@@ -1375,7 +1389,7 @@ class Editor:
                 ).pack(side=tk.LEFT)
                 ev = tk.StringVar(value=self.sim_config.params[key][i])
                 ent = tk.Entry(row, textvariable=ev,
-                    bg="#0c1020", fg="#e2e8f0",
+                    bg=ENTRY_BG, fg=ENTRY_FG,
                     insertbackground=CURSOR_C,
                     font=("Courier", 10), relief="flat", bd=3,
                     selectbackground="#1e3a5f", width=16)
@@ -1383,13 +1397,13 @@ class Editor:
                 evars.append(ev)
             if not info["params"]:
                 tk.Label(frame, text=info["desc"],
-                    bg=PANEL_BG, fg="#4b5563",
+                    bg=PANEL_BG, fg="#64748b",
                     font=("Helvetica", 9, "italic")).pack(pady=8)
             ana_entries[key] = (frame, evars)
 
         # Preview line at bottom of params
         preview_lbl = tk.Label(dlg, text="",
-            bg="#080c14", fg="#22c55e",
+            bg=PANEL_ALT, fg="#4ade80",
             font=("Courier", 9), anchor="w", padx=16, pady=4)
         preview_lbl.pack(fill=tk.X)
 
@@ -1412,9 +1426,9 @@ class Editor:
             vals = [ev.get().strip() for ev in evars]
             try:
                 line = ANALYSES[key]["spice"](vals)
-                preview_lbl.config(text=f"  {line}", fg="#22c55e")
+                preview_lbl.config(text=f"  {line}", fg="#4ade80")
             except Exception:
-                preview_lbl.config(text="  (fill all parameters)", fg="#4b5563")
+                preview_lbl.config(text="  (fill all parameters)", fg="#64748b")
 
         ana_var.trace_add("write", _switch)
         # Bind all entries to update preview
@@ -1440,13 +1454,14 @@ class Editor:
             dlg.destroy()
 
         tk.Button(bf, text="Apply & Close", command=_ok,
-            bg="#10082a", fg="#a78bfa",
-            activebackground="#1a1040", activeforeground="#c4b5fd",
+            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
             font=("Helvetica", 10, "bold"),
             relief="flat", padx=20, pady=6, cursor="hand2"
         ).pack(side=tk.LEFT, padx=6)
         tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BORDER, fg="#4b5563",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 9), relief="flat",
             padx=10, pady=6, cursor="hand2"
         ).pack(side=tk.LEFT)
@@ -1552,8 +1567,8 @@ class Editor:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="V  Source  Properties",
-            bg=PANEL_BG, fg="#818cf8",
+        tk.Label(dlg, text="Voltage Source Properties",
+            bg=PANEL_BG, fg="#38bdf8",
             font=("Helvetica", 11, "bold"), pady=8).pack()
 
         # ── Label row ──────────────────────────────────────────────────────
@@ -1563,7 +1578,7 @@ class Editor:
             font=("Helvetica", 9), width=10, anchor="w").pack(side=tk.LEFT)
         sv_label = tk.StringVar(value=c.label)
         tk.Entry(lr, textvariable=sv_label,
-            bg="#0c1020", fg="#fbbf24",
+            bg=ENTRY_BG, fg="#fbbf24",
             insertbackground=CURSOR_C,
             font=("Courier", 10), relief="flat", bd=3,
             selectbackground="#1e3a5f", width=14
@@ -1581,10 +1596,11 @@ class Editor:
             active_tab[0] = key
             for k, b in tab_btns.items():
                 if k == key:
-                    b.config(bg="#1e1040", fg="#c4b5fd",
+                    b.config(bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
                              relief="flat", font=("Courier", 8, "bold"))
                 else:
-                    b.config(bg=BORDER, fg="#4b5563",
+                    b.config(bg=BTN_BG, fg=BTN_FG,
+                             activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
                              relief="flat", font=("Courier", 8))
             _rebuild_params(key)
             _update_preview()
@@ -1592,6 +1608,7 @@ class Editor:
         for key in TAB_KEYS:
             b = tk.Button(tab_frame, text=key,
                 command=lambda k=key: _select_tab(k),
+                bg=BTN_BG, fg=BTN_FG, activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
                 font=("Courier", 8), relief="flat",
                 padx=8, pady=3, cursor="hand2")
             b.pack(side=tk.LEFT, padx=1, pady=2)
@@ -1636,7 +1653,7 @@ class Editor:
                         font=("Helvetica", 9), width=28, anchor="w"
                     ).pack(side=tk.LEFT)
                     e = tk.Entry(r, textvariable=sv,
-                        bg="#0c1020", fg=color,
+                        bg=ENTRY_BG, fg=color,
                         insertbackground=CURSOR_C,
                         font=("Courier", 10), relief="flat", bd=3,
                         selectbackground="#1e3a5f", width=12)
@@ -1673,7 +1690,7 @@ class Editor:
                     ).pack(anchor="w")
                     sv = tk.StringVar(value=val)
                     ent = tk.Entry(row, textvariable=sv,
-                        bg="#0c1020", fg="#e2e8f0",
+                        bg=ENTRY_BG, fg=ENTRY_FG,
                         insertbackground=CURSOR_C,
                         font=("Courier", 9), relief="flat", bd=3,
                         selectbackground="#1e3a5f", width=46)
@@ -1687,7 +1704,7 @@ class Editor:
                     ).pack(side=tk.LEFT)
                     sv = tk.StringVar(value=val)
                     ent = tk.Entry(row, textvariable=sv,
-                        bg="#0c1020", fg="#e2e8f0",
+                        bg=ENTRY_BG, fg=ENTRY_FG,
                         insertbackground=CURSOR_C,
                         font=("Courier", 10), relief="flat", bd=3,
                         selectbackground="#1e3a5f", width=14)
@@ -1704,7 +1721,7 @@ class Editor:
 
         sv_preview = tk.StringVar()
         tk.Label(dlg, textvariable=sv_preview,
-            bg="#050810", fg="#4ade80",
+            bg="#12131a", fg="#4ade80",
             font=("Courier", 9), anchor="w", padx=8, pady=5,
             wraplength=440, justify="left"
         ).pack(fill=tk.X, padx=20, pady=(0,8))
@@ -1747,13 +1764,14 @@ class Editor:
         bf = tk.Frame(dlg, bg=PANEL_BG)
         bf.pack(fill=tk.X, padx=20, pady=(0,14))
         tk.Button(bf, text="OK", command=_ok,
-            bg="#10082a", fg="#818cf8",
-            activebackground="#1a1040", activeforeground="#c4b5fd",
+            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
             font=("Helvetica", 9, "bold"),
             relief="flat", padx=16, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT)
         tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BORDER, fg="#4b5563",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 9), relief="flat",
             padx=10, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT, padx=(8,0))
@@ -1795,8 +1813,8 @@ class Editor:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text=f"{c.type}  Properties",
-            bg=PANEL_BG, fg="#818cf8",
+        tk.Label(dlg, text=f"{c.type} Properties",
+            bg=PANEL_BG, fg="#38bdf8",
             font=("Helvetica", 11, "bold"), pady=10).pack()
 
         def _row(parent, lbl, val, color="#e2e8f0"):
@@ -1806,7 +1824,7 @@ class Editor:
                 font=("Helvetica", 9), width=10, anchor="w").pack(side=tk.LEFT)
             sv = tk.StringVar(value=val)
             e  = tk.Entry(f, textvariable=sv,
-                bg="#0c1020", fg=color,
+                bg=ENTRY_BG, fg=color,
                 insertbackground=CURSOR_C,
                 font=("Courier", 10), relief="flat", bd=3,
                 selectbackground="#1e3a5f", width=24)
@@ -1825,13 +1843,14 @@ class Editor:
         bf = tk.Frame(dlg, bg=PANEL_BG)
         bf.pack(fill=tk.X, padx=20, pady=(8,12))
         tk.Button(bf, text="OK", command=_ok,
-            bg="#10082a", fg="#a78bfa",
-            activebackground="#1a1040", activeforeground="#c4b5fd",
+            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
             font=("Helvetica", 9, "bold"),
             relief="flat", padx=16, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT)
         tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BORDER, fg="#4b5563",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 9), relief="flat",
             padx=10, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT, padx=(8,0))
@@ -1860,8 +1879,8 @@ class Editor:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text=f"{c.type}  Properties",
-            bg=PANEL_BG, fg="#f87171",
+        tk.Label(dlg, text=f"{c.type} Properties",
+            bg=PANEL_BG, fg="#38bdf8",
             font=("Helvetica", 11, "bold"), pady=10).pack()
 
         body = tk.Frame(dlg, bg=PANEL_BG)
@@ -1874,7 +1893,7 @@ class Editor:
         def _entry(row, val, w=14, color="#e2e8f0"):
             sv = tk.StringVar(value=val)
             e  = tk.Entry(row, textvariable=sv,
-                bg="#0c1020", fg=color,
+                bg=ENTRY_BG, fg=color,
                 insertbackground=CURSOR_C,
                 font=("Courier", 10), relief="flat", bd=3,
                 selectbackground="#1e3a5f", width=w)
@@ -1899,18 +1918,18 @@ class Editor:
             mdl_list.insert(0, current_model)
         sv_model = tk.StringVar(value=current_model)
         mode_opt = tk.OptionMenu(r1, sv_model, *mdl_list)
-        mode_opt.config(bg="#0c1020", fg="#f87171",
-            activebackground="#1a0e0e", activeforeground="#fca5a5",
+        mode_opt.config(bg=ENTRY_BG, fg="#38bdf8",
+            activebackground=BTN_ACTIVE_BG, activeforeground="#ffffff",
             font=("Courier", 9), relief="flat", bd=0,
             highlightthickness=0, width=18)
-        mode_opt["menu"].config(bg="#0c1020", fg="#f87171",
+        mode_opt["menu"].config(bg=ENTRY_BG, fg="#38bdf8",
             font=("Courier", 9))
         mode_opt.pack(side=tk.LEFT, padx=(4,0))
 
         # Model source hint
         if not self._model_names_cache.get(c.type):
-            tk.Label(r1, text="  ← configure in ⚛ Models",
-                bg=PANEL_BG, fg="#4b5563",
+            tk.Label(r1, text="  ← configure in Models",
+                bg=PANEL_BG, fg="#64748b",
                 font=("Helvetica", 8)).pack(side=tk.LEFT)
 
         # ── W / L ──
@@ -1951,11 +1970,11 @@ class Editor:
             bulk_opts.insert(0, cur_bulk)
         sv_bulk = tk.StringVar(value=cur_bulk)
         bulk_opt = tk.OptionMenu(r5, sv_bulk, *bulk_opts)
-        bulk_opt.config(bg="#0c1020", fg="#e2e8f0",
-            activebackground="#1e2c3e", activeforeground="#f0f0f0",
+        bulk_opt.config(bg=ENTRY_BG, fg=ENTRY_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground="#ffffff",
             font=("Courier", 9), relief="flat", bd=0,
             highlightthickness=0, width=8)
-        bulk_opt["menu"].config(bg="#0c1020", fg="#e2e8f0", font=("Courier",9))
+        bulk_opt["menu"].config(bg=ENTRY_BG, fg=ENTRY_FG, font=("Courier",9))
         bulk_opt.pack(side=tk.LEFT, padx=(4,0))
 
         # ── Live SPICE preview ──
@@ -1965,7 +1984,7 @@ class Editor:
             font=("Courier", 7)).pack(anchor="w")
         sv_preview = tk.StringVar()
         lbl_preview = tk.Label(body, textvariable=sv_preview,
-            bg="#050810", fg="#4ade80",
+            bg="#12131a", fg="#4ade80",
             font=("Courier", 9), anchor="w", padx=6, pady=4,
             wraplength=380, justify="left")
         lbl_preview.pack(fill=tk.X, pady=(0,6))
@@ -2004,13 +2023,14 @@ class Editor:
         bf = tk.Frame(dlg, bg=PANEL_BG)
         bf.pack(fill=tk.X, padx=20, pady=(4,12))
         tk.Button(bf, text="OK", command=_ok,
-            bg="#1a0e0e", fg="#f87171",
-            activebackground="#2a1010", activeforeground="#fca5a5",
+            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
             font=("Helvetica", 9, "bold"),
             relief="flat", padx=16, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT)
         tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BORDER, fg="#4b5563",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 9), relief="flat",
             padx=10, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT, padx=(8,0))
@@ -2047,8 +2067,8 @@ class Editor:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text=f"{c.type}  Properties",
-            bg=PANEL_BG, fg="#f87171",
+        tk.Label(dlg, text=f"{c.type} Properties",
+            bg=PANEL_BG, fg="#38bdf8",
             font=("Helvetica", 11, "bold"), pady=10).pack()
 
         body = tk.Frame(dlg, bg=PANEL_BG)
@@ -2060,7 +2080,7 @@ class Editor:
                 font=("Helvetica", 9), width=12, anchor="w").pack(side=tk.LEFT)
             sv = tk.StringVar(value=val)
             e  = tk.Entry(f, textvariable=sv,
-                bg="#0c1020", fg=color,
+                bg=ENTRY_BG, fg=color,
                 insertbackground=CURSOR_C,
                 font=("Courier", 10), relief="flat", bd=3,
                 selectbackground="#1e3a5f", width=22)
@@ -2081,22 +2101,22 @@ class Editor:
             mdl_list.insert(0, current_model)
         sv_model = tk.StringVar(value=current_model)
         opt = tk.OptionMenu(rf, sv_model, *mdl_list)
-        opt.config(bg="#0c1020", fg="#f87171",
-            activebackground="#1a0e0e", activeforeground="#fca5a5",
+        opt.config(bg=ENTRY_BG, fg="#38bdf8",
+            activebackground=BTN_ACTIVE_BG, activeforeground="#ffffff",
             font=("Courier", 9), relief="flat", bd=0,
             highlightthickness=0, width=18)
-        opt["menu"].config(bg="#0c1020", fg="#f87171", font=("Courier", 9))
+        opt["menu"].config(bg=ENTRY_BG, fg="#38bdf8", font=("Courier", 9))
         opt.pack(side=tk.LEFT, padx=(4,0))
         if not self._model_names_cache.get(c.type):
-            tk.Label(rf, text="  ← configure in ⚛ Models",
-                bg=PANEL_BG, fg="#4b5563",
+            tk.Label(rf, text="  ← configure in Models",
+                bg=PANEL_BG, fg="#64748b",
                 font=("Helvetica", 8)).pack(side=tk.LEFT)
 
         # Preview
         tk.Frame(body, bg=BORDER, height=1).pack(fill=tk.X, pady=(10,4))
         sv_preview = tk.StringVar()
         tk.Label(body, textvariable=sv_preview,
-            bg="#050810", fg="#4ade80",
+            bg="#12131a", fg="#4ade80",
             font=("Courier", 9), anchor="w", padx=6, pady=4
         ).pack(fill=tk.X, pady=(0,6))
 
@@ -2116,13 +2136,14 @@ class Editor:
         bf = tk.Frame(dlg, bg=PANEL_BG)
         bf.pack(fill=tk.X, padx=20, pady=(4,12))
         tk.Button(bf, text="OK", command=_ok,
-            bg="#1a0e0e", fg="#f87171",
-            activebackground="#2a1010", activeforeground="#fca5a5",
+            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
             font=("Helvetica", 9, "bold"),
             relief="flat", padx=16, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT)
         tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BORDER, fg="#4b5563",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 9), relief="flat",
             padx=10, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT, padx=(8,0))
@@ -2159,8 +2180,8 @@ class Editor:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="⚛  Model Manager",
-            bg=PANEL_BG, fg="#f87171",
+        tk.Label(dlg, text="Model Manager",
+            bg=PANEL_BG, fg="#38bdf8",
             font=("Helvetica", 12, "bold"), pady=12).pack()
 
         body = tk.Frame(dlg, bg=PANEL_BG)
@@ -2193,8 +2214,8 @@ class Editor:
                          ("include", "External file  (.sp / .spi  — .include)"),
                          ("lib",     "Library file   (.lib  — .lib + corner)")]:
             tk.Radiobutton(mode_frame, text=lbl, variable=sv_mode, value=val,
-                bg=PANEL_BG, fg="#cbd5e1", selectcolor="#1a0e0e",
-                activebackground=PANEL_BG, activeforeground="#f87171",
+                bg=PANEL_BG, fg="#cbd5e1", selectcolor=PANEL_ALT,
+                activebackground=PANEL_BG, activeforeground="#38bdf8",
                 font=("Helvetica", 9), anchor="w"
             ).pack(fill=tk.X, padx=10, pady=1)
 
@@ -2215,8 +2236,8 @@ class Editor:
                 state="disabled" if disabled else "normal",
                 bg=PANEL_BG,
                 fg="#4b5563" if disabled else "#cbd5e1",
-                selectcolor="#1a0e0e",
-                activebackground=PANEL_BG, activeforeground="#f87171",
+                selectcolor=PANEL_ALT,
+                activebackground=PANEL_BG, activeforeground="#38bdf8",
                 font=("Helvetica", 9), anchor="w")
             rb.pack(fill=tk.X, padx=10, pady=1)
 
@@ -2231,7 +2252,7 @@ class Editor:
             font=("Helvetica", 9), width=7, anchor="w").pack(side=tk.LEFT)
         sv_file = tk.StringVar(value=mc.file_path)
         ent_file = tk.Entry(fr1, textvariable=sv_file,
-            bg="#0c1020", fg="#e2e8f0",
+            bg=ENTRY_BG, fg=ENTRY_FG,
             insertbackground=CURSOR_C,
             font=("Courier", 9), relief="flat", bd=3, width=30)
         ent_file.pack(side=tk.LEFT, padx=(4,4))
@@ -2246,8 +2267,8 @@ class Editor:
                 self._last_dir = os.path.dirname(p)
                 _parse_file(p)
         tk.Button(fr1, text="Browse…", command=_browse,
-            bg=BORDER, fg="#94a3b8",
-            activebackground="#1e2c3e", activeforeground="#e2e8f0",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 8), relief="flat",
             padx=6, pady=2, cursor="hand2"
         ).pack(side=tk.LEFT)
@@ -2258,11 +2279,11 @@ class Editor:
         sv_corner = tk.StringVar(value=mc.corner or "tt")
         corner_opts = ["tt", "ff", "ss", "fs", "sf"]
         corner_menu = tk.OptionMenu(fr2, sv_corner, *corner_opts)
-        corner_menu.config(bg="#0c1020", fg="#e2e8f0",
-            activebackground="#1e2c3e", activeforeground="#f0f0f0",
+        corner_menu.config(bg=ENTRY_BG, fg=ENTRY_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground="#ffffff",
             font=("Courier", 9), relief="flat", bd=0,
             highlightthickness=0, width=12)
-        corner_menu["menu"].config(bg="#0c1020", fg="#e2e8f0", font=("Courier",9))
+        corner_menu["menu"].config(bg=ENTRY_BG, fg=ENTRY_FG, font=("Courier",9))
         corner_menu.pack(side=tk.LEFT, padx=(4,0))
         tk.Label(fr2, text="  (for .lib / PDK files)",
             bg=PANEL_BG, fg="#4b5563",
@@ -2285,7 +2306,7 @@ class Editor:
         det_frame.pack(fill=tk.X, pady=(0,10))
 
         det_text = tk.Text(det_frame, height=7, width=52,
-            bg="#050810", fg="#4ade80",
+            bg="#12131a", fg="#4ade80",
             font=("Courier", 8), relief="flat",
             state=tk.DISABLED, padx=6, pady=4)
         det_text.pack(fill=tk.X, padx=4, pady=4)
@@ -2336,7 +2357,7 @@ class Editor:
         for pval, plbl in pdk_radio_items:
             tk.Radiobutton(pdk_radio_frame, text=plbl, variable=sv_pdk, value=pval,
                 command=_on_pdk_select,
-                bg=PANEL_BG, fg="#cbd5e1", selectcolor="#0f172a",
+                bg=PANEL_BG, fg="#cbd5e1", selectcolor=PANEL_ALT,
                 activebackground=PANEL_BG, activeforeground="#38bdf8",
                 font=("Helvetica", 9), anchor="w"
             ).pack(side=tk.LEFT, padx=6, pady=2)
@@ -2407,13 +2428,14 @@ class Editor:
         bf = tk.Frame(dlg, bg=PANEL_BG)
         bf.pack(fill=tk.X, padx=22, pady=(4,14))
         tk.Button(bf, text="Apply", command=_ok,
-            bg="#1a0e0e", fg="#f87171",
-            activebackground="#2a1010", activeforeground="#fca5a5",
+            bg=BTN_PRIMARY_BG, fg=BTN_PRIMARY_FG,
+            activebackground=BTN_PRIMARY_ACT, activeforeground="#ffffff",
             font=("Helvetica", 9, "bold"),
             relief="flat", padx=16, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT)
         tk.Button(bf, text="Cancel", command=_cancel,
-            bg=BORDER, fg="#4b5563",
+            bg=BTN_BG, fg=BTN_FG,
+            activebackground=BTN_ACTIVE_BG, activeforeground=BTN_ACTIVE_FG,
             font=("Helvetica", 9), relief="flat",
             padx=10, pady=4, cursor="hand2"
         ).pack(side=tk.LEFT, padx=(8,0))
@@ -2444,9 +2466,9 @@ class Editor:
 
             try:
                 if self.model_config.pdk_name:
-                    self.btn_models.config(text=f"⚛ Models: {self.model_config.pdk_name.upper()}")
+                    self.btn_models.config(text=f"Models: {self.model_config.pdk_name.upper()}")
                 else:
-                    self.btn_models.config(text="⚛ Models")
+                    self.btn_models.config(text="Models")
             except Exception:
                 pass
 
@@ -2461,7 +2483,7 @@ class Editor:
         cmd = self._ask("Command",
             "nmos  pmos  npn  pnp  ·  in  out  inout  vdd  vss  ·  "
             "pdk  sim  ·  save  load  netlist  savesvg  savepng  doc clear",
-            color="#c21820")
+            color="#38bdf8")
         if cmd and cmd.strip():
             self._exec_cmd(cmd.strip())
         else:
@@ -2492,7 +2514,7 @@ class Editor:
                 self.model_config.mode = "inline"
                 self.model_config.file_path = ""
                 self._model_names_cache = {}
-                try: self.btn_models.config(text="⚛ Models")
+                try: self.btn_models.config(text="Models")
                 except Exception: pass
                 self._status("✓ Switched to Inline Level 1 models", "#4ade80")
                 self._render()
@@ -2511,7 +2533,7 @@ class Editor:
                     for dt in ("NMOS", "PMOS", "NPN", "PNP"):
                         if dt in resolved.default_models:
                             self.model_config.device_models[dt]["name"] = resolved.default_models[dt]
-                    try: self.btn_models.config(text=f"⚛ Models: {resolved.key.upper()}")
+                    try: self.btn_models.config(text=f"Models: {resolved.key.upper()}")
                     except Exception: pass
                     status_icon = "✓" if resolved.available else "[!] (files not found)"
                     self._status(f"{status_icon} PDK set to {resolved.display_name} [{corner}]",
@@ -2593,7 +2615,7 @@ class Editor:
                     if resolved:
                         self._model_names_cache = dict(resolved.models)
                         try:
-                            self.btn_models.config(text=f"⚛ Models: {pdk_name.upper()}")
+                            self.btn_models.config(text=f"Models: {pdk_name.upper()}")
                         except Exception:
                             pass
                 else:
@@ -2603,7 +2625,7 @@ class Editor:
                     else:
                         self._model_names_cache = {}
                     try:
-                        self.btn_models.config(text="⚛ Models")
+                        self.btn_models.config(text="Models")
                     except Exception:
                         pass
             self._status(
@@ -2824,7 +2846,7 @@ class Editor:
 
     def _run_simulation(self):
         """
-        Main Run handler — called by the ▶ Run button.
+        Main Run handler — called by the Run button.
         1. Ensure schematic is saved
         2. Write .cir alongside the .json
         3. Run ngspice in a background thread
@@ -2855,7 +2877,7 @@ class Editor:
         # ── Guard: simulation analysis must be configured ─────────────────────
         if not self.sim_config or not getattr(self.sim_config, "analysis", None):
             self._status(
-                "[!] No simulation configured — press ⚡ Simulation first",
+                "[!] No simulation configured — open Simulation first",
                 "#f59e0b")
             self._open_sim_dialog()
             return
@@ -2887,7 +2909,7 @@ class Editor:
         self._sim_log_clear()
         stem = os.path.basename(base)
         self._sim_log_write(
-            f"▶  Running simulation: {stem}\n"
+            f">> Running simulation: {stem}\n"
             f"   Netlist : {cir_path}\n"
             f"   Output  : {raw_path}\n"
             f"   Solver  : {self._ngspice_exe}\n"
@@ -2895,7 +2917,7 @@ class Editor:
             + "─" * 52 + "\n",
             tag="header")
 
-        self.btn_run.config(text="⏳ Running…", state=tk.DISABLED)
+        self.btn_run.config(text="Running…", state=tk.DISABLED)
         self._last_raw_path = None
 
         # ── Run ngspice in a background thread so the GUI stays responsive ────
@@ -2919,7 +2941,7 @@ class Editor:
 
     def _on_sim_done(self, sim):
         """Called on the main thread when the simulation thread finishes."""
-        self.btn_run.config(text="▶ Run", state=tk.NORMAL)
+        self.btn_run.config(text="Run", state=tk.NORMAL)
 
         sep = "─" * 52
         if sim.success:
@@ -2929,7 +2951,7 @@ class Editor:
                    f"✓  Simulation complete  ({sim.duration_s:.2f}s)\n"
                    f"   Results → {sim.raw_path}\n")
             self._sim_log_write(msg, tag="ok")
-            self.lbl_sim_header.config(text="  ✓ Simulation complete",
+            self.lbl_sim_header.config(text="  Simulation complete",
                                        fg="#4ade80")
             self._status(
                 f"✓ Done in {sim.duration_s:.2f}s  →  "
@@ -2941,7 +2963,7 @@ class Editor:
                    f"[!] Simulation failed  (exit {sim.exit_code})\n"
                    f"    {err_text}\n")
             self._sim_log_write(msg, tag="err")
-            self.lbl_sim_header.config(text="  [!] Simulation failed",
+            self.lbl_sim_header.config(text="  Simulation failed",
                                        fg="#f87171")
             self._status(
                 f"[!] Simulation failed — check log panel", "#f87171")
@@ -2956,7 +2978,7 @@ class Editor:
     def _hide_sim_log(self):
         self._sim_log_visible = False
         self.sim_log_frame.pack_forget()
-        self.lbl_sim_header.config(text="  ▶ Simulation Log", fg="#4ade80")
+        self.lbl_sim_header.config(text="  Simulation Log", fg="#cbd5e1")
 
     def _sim_log_clear(self):
         self.sim_log_text.config(state=tk.NORMAL)
@@ -2994,10 +3016,10 @@ class Editor:
             self.netlist_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(4,0))
             self.netlist_frame.config(width=420)
             self._rebuild_netlist()
-            self.btn_netlist.config(bg="#0a2a0a", fg="#86efac")
+            self.btn_netlist.config(bg=BTN_ACTIVE_BG, fg=BTN_ACTIVE_FG)
         else:
             self.netlist_frame.pack_forget()
-            self.btn_netlist.config(bg="#0d1a0d", fg="#4ade80")
+            self.btn_netlist.config(bg=BTN_BG, fg=BTN_FG)
 
     def _rebuild_netlist(self):
         if not self._netlist_visible: return
@@ -3016,7 +3038,7 @@ class Editor:
             self.nl_warn.config(text="⚠  " + "  ·  ".join(result.warnings))
         else:
             self.nl_warn.config(text="  ✓ No warnings",
-                                 fg="#2d6a35", bg="#080c10")
+                                 fg="#4ade80", bg=PANEL_BG)
         net_summary = "  ".join(
             f"{k}:{len(v)}pt" for k,v in sorted(result.nets.items()))
         self.nl_nets.config(text=f"  nets: {net_summary}")
@@ -3059,7 +3081,7 @@ class Editor:
             self._status(f"[!] {e}", "#f87171")
 
     def _save_netlist_file(self, path=None):
-        """Called from panel '⬇ Save .cir' button."""
+        """Called from panel 'Save .cir' button."""
         self._dialog_save_netlist()
 
     def _clear(self):
@@ -3116,7 +3138,7 @@ class Editor:
             cv.create_rectangle(
                 wx - tw//2 - 3, wy - th//2 - 2,
                 wx + tw//2 + 3, wy + th//2 + 2,
-                fill="#0a1a2a", outline=WIRE_LBL_COLOR,
+                fill="#1e293b", outline=WIRE_LBL_COLOR,
                 width=1.0)
             cv.create_text(wx, wy,
                 text=wl.text, fill=WIRE_LBL_COLOR,
@@ -3207,7 +3229,7 @@ class Editor:
         flip_tag = "  ⟺" if (c and c.flip) else ""
         self.lbl_info.config(
             text=f"· {c.label}  {c.value}{flip_tag}" if c else "")
-        bg_,fg_ = MODE_COLS.get(self.mode,("#0d1117","#c9d1d9"))
+        bg_,fg_ = MODE_COLS.get(self.mode,("#232535","#cbd5e1"))
         self.lbl_mode.config(text=self.mode, bg=bg_, fg=fg_)
 
         if getattr(self, "_active_status", None):
@@ -3219,7 +3241,7 @@ class Editor:
                      f"{len(self.wlbls)} net label  │  "
                      "mouse=drag/move · arrows · R/C/L/V/I/G · W=wire · T=net label · "
                      f"Spc=rot · F=flip · E=edit · :=cmd · +/-=zoom{pil_note}",
-                fg="#1e2c3a")
+                fg="#94a3b8")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

@@ -137,8 +137,8 @@ Pre-configured schematic examples are available in `examples/`:
 
 ## Netlist Export & Simulation
 
-- **Exporting**: Use `:netlist` in the command dialog or click the `{ } Netlist` toolbar button to inspect the generated SPICE deck.
-- **Simulating**: Click the **▶ Run** toolbar button (or `:sim`) to execute the simulation in NGspice. Results and progress stream live to the simulation log panel, and a `.raw` output file is generated in the circuit directory.
+- **Exporting**: Use `:netlist` in the command dialog or click the `Netlist` toolbar button to inspect the generated SPICE deck.
+- **Simulating**: Click the **Run** toolbar button (or `:sim`) to execute the simulation in NGspice. Results and progress stream live to the simulation log panel, and a `.raw` output file is generated in the circuit directory.
 
 To run NGspice manually from the command line:
 
