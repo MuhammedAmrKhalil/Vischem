@@ -3539,28 +3539,6 @@ class Editor:
         # ── Mode (determined automatically by PDK selection or Model File) ──
         sv_mode = tk.StringVar(value=mc.mode)
 
-        # ── Level selector (inline only) ──
-        level_frame = tk.LabelFrame(body, text="  SPICE Level  ",
-            bg=PANEL_BG, fg="#94a3b8",
-            font=("Helvetica", 9), bd=1, relief="solid")
-        level_frame.pack(fill=tk.X, pady=(0,10))
-
-        level_keys = [1, 2, 3, "BSIM3", "BSIM4"]
-        sv_level   = tk.StringVar(value=str(mc.level))
-        for key in level_keys:
-            lbl_text = LEVEL_LABELS.get(key, str(key))
-            disabled = key in (2, 3, "BSIM3", "BSIM4")
-            rb = tk.Radiobutton(level_frame,
-                text=lbl_text + ("  [coming soon]" if disabled else ""),
-                variable=sv_level, value=str(key),
-                state="disabled" if disabled else "normal",
-                bg=PANEL_BG,
-                fg="#4b5563" if disabled else "#cbd5e1",
-                selectcolor=PANEL_ALT,
-                activebackground=PANEL_BG, activeforeground="#38bdf8",
-                font=("Helvetica", 9), anchor="w")
-            rb.pack(fill=tk.X, padx=10, pady=1)
-
         # ── File picker ──
         file_frame = tk.LabelFrame(body, text="  Model File  ",
             bg=PANEL_BG, fg="#94a3b8",
@@ -3654,11 +3632,11 @@ class Editor:
                     text=f"[!] PDK files not found at: {pdk.pdk_dir}", fg="#f59e0b")
             else:
                 lbl_pdk_status.config(
-                    text=f"✓ Detected at: {pdk.pdk_dir}", fg="#4ade80")
+                    text=f"Detected at: {pdk.pdk_dir}", fg="#4ade80")
 
             nw, nl = pdk.min_wl.get("NMOS", ("?", "?"))
             pw, pl = pdk.min_wl.get("PMOS", ("?", "?"))
-            lbl_pdk_wl.config(text=f"  ✓ Applied Min Dimensions: NMOS W/L = {nw}/{nl}   PMOS W/L = {pw}/{pl}", fg="#4ade80")
+            lbl_pdk_wl.config(text=f"  Applied Min Dimensions: NMOS W/L = {nw}/{nl}   PMOS W/L = {pw}/{pl}", fg="#4ade80")
 
             sv_mode.set("lib")
             sv_file.set(pdk.lib_file)
@@ -3673,7 +3651,7 @@ class Editor:
                 if models:
                     lines.append(f"  {dt}:")
                     for m in models:
-                        lines.append(f"    ✓  {m}")
+                        lines.append(f"    {m}")
             _set_detected_text("\n".join(lines))
 
         pdk_radio_items = [
@@ -3712,7 +3690,7 @@ class Editor:
                 if names:
                     lines.append(f"  {dt}:")
                     for n in names:
-                        lines.append(f"    ✓  {n}")
+                        lines.append(f"    {n}")
             if total == 0:
                 lines.append("  [!] No .model or .subckt definitions found")
             _set_detected_text("\n".join(lines))
@@ -3741,9 +3719,7 @@ class Editor:
 
         # ── Buttons ──
         def _ok(_=None):
-            level_val = sv_level.get()
-            try:    level_val = int(level_val)
-            except: pass   # stays as "BSIM3" / "BSIM4"
+            level_val = getattr(mc, "level", 1)
             pdk_val = sv_pdk.get()
             fp = sv_file.get().strip()
             if pdk_val != "none":
